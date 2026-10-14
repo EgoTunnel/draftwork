@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Draftwork Viewer</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./" id="brand">Draftwork</a>
+    <nav role="tablist">
+      <button role="tab" id="tab-review" aria-selected="true" aria-controls="view-review">Review submissions</button>
+      <button role="tab" id="tab-assign" aria-selected="false" aria-controls="view-assign">Assignments</button>
+    </nav>
+    <span class="spacer"></span>
+    <span class="small muted">Instructor</span>
+  </header>
+
+  <main class="page">
+    <!-- Review -->
+    <section id="view-review" role="tabpanel">
+      <div id="review-list">
+        <div class="section-head">
+          <div>
+            <h1>Review submissions</h1>
+            <p class="muted">Open the <code>.draftwork</code> files students uploaded to your LMS dropbox. Files stay in this browser; nothing is uploaded.</p>
+          </div>
+        </div>
+        <label class="dropzone" id="drop" for="file-input">
+          <strong>Drop .draftwork files here</strong> or click to choose. Open the whole class at once to switch on class comparisons.
+          <input type="file" id="file-input" accept=".draftwork,application/gzip,application/json" multiple class="hidden">
+        </label>
+        <div class="row" style="margin-top:10px">
+          <button class="btn small hidden" id="load-demo" type="button">Load the demo class</button>
+          <button class="btn small ghost hidden" id="clear-files" type="button">Clear loaded files</button>
+          <span class="small muted" id="load-status"></span>
+        </div>
+        <div id="groups" style="margin-top:20px"></div>
+      </div>
+      <div id="review-detail" class="hidden">
+        <div class="row" style="margin-bottom:16px">
+          <button class="btn small" id="back" type="button">← All submissions</button>
+          <span class="spacer"></span>
+          <button class="btn small" id="prev" type="button">← Previous</button>
+          <button class="btn small" id="next" type="button">Next →</button>
+        </div>
+        <div id="report"></div>
+      </div>
+    </section>
+
+    <!-- Assignments -->
+    <section id="view-assign" role="tabpanel" class="hidden">
+      <h1>Assignments</h1>
+      <p class="muted">An assignment config sets the title, a random nonce and the policy. Students open it with the link or code; their file stores it verbatim with its hash, so a log written for a different assignment, or under looser paste rules, fails the check.</p>
+      <div class="grid2">
+        <form class="card stack" id="new-form">
+          <h2>New assignment</h2>
+          <div>
+            <label for="f-title">Title</label>
+            <input type="text" id="f-title" required placeholder="Essay 2: Cities and Memory">
+          </div>
+          <div>
+            <label for="f-paste">Pasting from outside the document</label>
+            <select id="f-paste">
+              <option value="block">Blocked (attempts are logged with length only)</option>
+              <option value="allow">Allowed (logged and labelled)</option>
+            </select>
+          </div>
+          <label class="check"><input type="checkbox" id="f-sources" checked> <span>Sources pane for pasted quotes <span class="hint">(tagged and kept separate)</span></span></label>
+          <div class="row">
+            <div style="flex:1"><label for="f-min">Min words <span class="hint">(optional)</span></label><input type="number" id="f-min" min="0"></div>
+            <div style="flex:1"><label for="f-max">Max words <span class="hint">(optional)</span></label><input type="number" id="f-max" min="0"></div>
+          </div>
+          <div>
+            <label for="f-tsa">Timestamp relay URL <span class="hint">(RFC 3161; same-origin relay by default)</span></label>
+            <input type="text" id="f-tsa" value="/tsa">
+          </div>
+          <details>
+            <summary>Flag thresholds</summary>
+            <p class="small muted" style="margin-top:8px">Starting values to calibrate in a pilot. They travel with the assignment, so students’ previews match what you see.</p>
+            <div class="thresholds" id="f-thresholds"></div>
+          </details>
+          <div><button class="btn primary" type="submit">Create assignment</button></div>
+        </form>
+        <div>
+          <div class="card stack">
+            <h2>Import an assignment code</h2>
+            <p class="small muted">To check submissions against an assignment created in another browser.</p>
+            <div class="row">
+              <input type="text" id="import-code" placeholder="Paste a code or student link" style="flex:1">
+              <button class="btn" id="import-btn" type="button">Import</button>
+            </div>
+          </div>
+          <div class="card" id="assign-list"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="js/instructor.js"></script>
+</body>
+</html>

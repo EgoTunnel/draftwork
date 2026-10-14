@@ -1,0 +1,16 @@
+{
+  "name": "draftwork",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Records how a piece of writing was produced so an instructor can replay it and ask about it.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "start:mock": "node server.js --mock-tsa",
+    "simulate": "node tools/simulate.js",
+    "test": "node --test tests/draftwork.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

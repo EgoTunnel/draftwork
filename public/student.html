@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Draftwork Sandbox</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <!-- Setup -->
+  <div id="screen-setup">
+    <header class="topbar">
+      <a class="brand" href="./" id="brand">Draftwork</a>
+      <span class="spacer"></span>
+      <span class="small muted">Student sandbox</span>
+    </header>
+    <main class="page narrow stack">
+      <div class="card stack hidden" id="need-code">
+        <h1>Open your assignment</h1>
+        <p class="muted">Paste the link or code your instructor gave you.</p>
+        <div class="row">
+          <input type="text" id="code-input" placeholder="Assignment link or code" style="flex:1">
+          <button class="btn primary" id="code-btn" type="button">Open</button>
+        </div>
+      </div>
+
+      <div class="notice bad hidden" id="refusal" role="alert"></div>
+
+      <div class="card stack hidden" id="assignment-card">
+        <div class="layer-label">Assignment</div>
+        <h1 id="a-title"></h1>
+        <ul id="a-policy" class="small" style="margin:0;padding-left:18px"></ul>
+        <details>
+          <summary>What Draftwork records</summary>
+          <div class="small muted" style="margin-top:8px">
+            <p>Every edit you make (typing, deleting, moving text), when it happened, and when the window loses focus. Pasting from outside the document is handled by the assignment’s policy; refused pastes are logged by length only, never their content.</p>
+            <p>Every minute or so the sandbox sends a <em>hash</em> of your progress to a timestamp service. Only that hash leaves your computer; your text stays here until you save the file and upload it to your LMS yourself.</p>
+            <p>You can open the exact view your instructor will see at any time with <strong>Preview</strong>. A process pattern can only ever lead to a conversation, never directly to a penalty.</p>
+          </div>
+        </details>
+      </div>
+
+      <div class="card stack hidden" id="resume-card">
+        <h2>Continue your draft</h2>
+        <p class="muted" id="resume-info"></p>
+        <div class="row">
+          <button class="btn primary" id="resume-btn" type="button">Continue writing</button>
+          <button class="btn" id="resume-save" type="button">Save the file</button>
+          <span class="spacer"></span>
+          <button class="btn ghost small" id="discard-btn" type="button">Discard this draft</button>
+        </div>
+      </div>
+
+      <form class="card stack hidden" id="new-card">
+        <h2>Start a new piece</h2>
+        <div>
+          <label for="label-input">Your name and student number <span class="hint">(the only personal data in the file)</span></label>
+          <input type="text" id="label-input" required placeholder="A. Student, 000123456" autocomplete="name">
+        </div>
+        <div>
+          <label for="notes-input">Process notes <span class="hint">(optional, you can add these later)</span></label>
+          <textarea id="notes-input" rows="2" placeholder="e.g. Outlined on paper first; used dictation for paragraph 3."></textarea>
+        </div>
+        <label class="check"><input type="checkbox" id="dictation-input"> <span>Dictation mode <span class="hint">(adds a note to your file; dictated chunks are labelled, never flagged as large insertions)</span></span></label>
+        <div class="row">
+          <button class="btn primary" type="submit" id="start-btn">Start writing</button>
+          <span class="small muted" id="start-status"></span>
+        </div>
+      </form>
+
+      <div class="card stack hidden" id="file-card">
+        <h2>Continue from a saved file</h2>
+        <p class="small muted">Working on a different computer? Open the <code>.draftwork</code> file you saved last time.</p>
+        <input type="file" id="continue-file" accept=".draftwork">
+      </div>
+    </main>
+  </div>
+
+  <!-- Writer -->
+  <div id="screen-writer" class="writer hidden">
+    <header class="topbar">
+      <a class="brand" href="./" id="brand2" title="Draftwork"></a>
+      <span class="writer-title" id="w-title"></span>
+      <span class="spacer"></span>
+      <span class="pill" id="stamp-pill" title="Checkpoint timestamps"><span class="dot"></span><span id="stamp-text">Connecting…</span></span>
+      <span class="pill" id="words-pill">0 words</span>
+      <button class="btn small" id="notes-btn" type="button">Notes</button>
+      <button class="btn small" id="preview-btn" type="button">Preview</button>
+      <button class="btn small primary" id="save-btn" type="button">Save file</button>
+      <button class="btn small ghost" id="end-btn" type="button">End session</button>
+    </header>
+    <div class="writer-body" id="writer-body">
+      <div class="editor-wrap">
+        <textarea id="editor" spellcheck="true" aria-label="Your writing" placeholder="Start writing…"></textarea>
+      </div>
+      <aside class="sources hidden" id="sources-pane">
+        <header>
+          <strong>Sources</strong>
+          <div class="small muted">Paste quotes and references here. They are tagged and kept separate; copy from here into your writing.</div>
+        </header>
+        <textarea id="sources" spellcheck="false" aria-label="Sources pane"></textarea>
+      </aside>
+    </div>
+    <div class="statusbar">
+      <span id="autosave-status">Saved in this browser</span>
+      <span class="spacer"></span>
+      <span id="policy-note"></span>
+    </div>
+  </div>
+
+  <!-- Session ended -->
+  <div id="screen-ended" class="hidden">
+    <header class="topbar"><a class="brand" href="./" id="brand3">Draftwork</a></header>
+    <main class="page narrow">
+      <div class="card stack">
+        <h1>Session ended</h1>
+        <p>Your draft is saved in this browser. To submit, save the <code>.draftwork</code> file and upload it to your LMS dropbox. You can keep writing later; each sitting becomes a new session in the same file.</p>
+        <div class="row">
+          <button class="btn primary" id="ended-save" type="button">Save file</button>
+          <button class="btn" id="ended-preview" type="button">Preview</button>
+          <button class="btn" id="ended-continue" type="button">Continue writing</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Notes & accommodations -->
+  <dialog id="notes-dlg">
+    <form method="dialog">
+      <div class="dlg-body stack">
+        <h2>Notes and accommodations</h2>
+        <div>
+          <label for="dlg-notes">Process notes <span class="hint">(shown to your instructor beside any flag)</span></label>
+          <textarea id="dlg-notes" rows="3" placeholder="e.g. Drafted on paper first; I compose in my head and type quickly."></textarea>
+        </div>
+        <label class="check"><input type="checkbox" id="dlg-dictation"> <span>Dictation mode</span></label>
+        <div>
+          <label for="dlg-outline">Attach an outline <span class="hint">(a photo of paper notes, for example)</span></label>
+          <p class="small muted" style="margin:0 0 6px">Only the file name and a fingerprint (hash) are stored, as evidence that it existed. The image itself is not stored or sent.</p>
+          <input type="file" id="dlg-outline" accept="image/*,.pdf">
+          <ul id="dlg-attachments" class="small muted" style="margin:6px 0 0;padding-left:18px"></ul>
+        </div>
+      </div>
+      <div class="dlg-foot"><button class="btn primary" value="ok">Done</button></div>
+    </form>
+  </dialog>
+
+  <!-- Preview -->
+  <div class="overlay hidden" id="preview">
+    <div class="overlay-bar">
+      <strong>Preview: what your instructor will see</strong>
+      <span class="spacer"></span>
+      <button class="btn small primary" id="preview-close" type="button">Back to writing</button>
+    </div>
+    <div class="page" id="preview-body"></div>
+  </div>
+
+  <script type="module" src="js/student.js"></script>
+</body>
+</html>
