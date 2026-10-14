@@ -2,27 +2,60 @@
 
 Records how a take-home piece of writing was produced, so an instructor can replay it and ask about it. Built from [Draftwork — File Format & Replay Viewer Spec](./Draftwork%20—%20File%20Format%20&%20Replay%20Viewer%20Spec.md).
 
-Two static pages and a file format, plus a tiny stateless timestamp relay:
+Two static pages and a file format, plus a tiny stateless timestamp relay. No dependencies; Node 20+.
 
-- **Student sandbox** (`student.html`): a word-processor-style editor whose every change is recorded.
-  - **Menus:** File, Edit, View, Format and Tools.
-  - **Formatting:** paragraph styles (Title, Headings, Quote); bold, italic, underline, strikethrough, superscript/subscript and highlight; bulleted and numbered lists with indent levels; alignment; and document-wide font, size, line spacing and first-line indent.
-  - **Editing:** undo/redo, find and replace, special characters, smart quotes and automatic lists.
-  - **View:** page view or full-width view with zoom, a navigation pane for headings, word count, print, and .docx/.txt download.
-  - **Recording:** checkpoints every 60 s of activity or 500 events, each stamped (RFC 3161). The draft autosaves to IndexedDB, and **Save file** writes the gzipped `.draftwork` file for the LMS dropbox. **Preview** shows exactly what the instructor will see.
-- **Instructor viewer** (`instructor.html`): creates assignment links (title, nonce, paste policy, sources pane, word limits, flag thresholds), then opens one or many `.draftwork` files.
-  - **Overview tab:** integrity checks, flags, the writing process (production graph and signals with class and self-baseline comparisons), 3–5 questions to ask, and a scrubbable replay.
-  - **Document tab** (or **Read** in the list): the submitted document as formatted, with copy, Word/text download and print.
-- **Appearance**: every page has a theme menu (system, light, dark or sepia) and a text-size setting, remembered per browser. Short explanations appear on hover.
-- **Relay** (`server.js`): serves the pages and forwards `POST /tsa` to a public RFC 3161 authority, because those don't accept browser (CORS) requests.
+## What's in it
 
-No dependencies. Node 20+.
+**Student sandbox** (`student.html`)
+
+- **Word-style editor:**
+  - menus (File, Edit, View, Insert, Format, Tools);
+  - paragraph styles, including Works Cited with a hanging indent;
+  - bold, italic, underline, strikethrough, superscript/subscript and highlight;
+  - lists, alignment, page breaks and page numbers;
+  - document font, size and spacing;
+  - undo/redo, find & replace, special characters, smart quotes and automatic lists;
+  - page and full-width views, zoom, a headings pane, word count, print, and .docx/.txt download.
+- **Assignment info while writing:** the due date and progress toward the required length.
+- **Recording:**
+  - Every change is recorded.
+  - Checkpoints are stamped by an approved RFC 3161 service every 60 s of activity.
+  - **Save file** writes the `.draftwork` file for the LMS and shows a **receipt** (a fingerprint of the file).
+- **Protecting work:**
+  - autosave in the browser;
+  - **earlier versions** to restore;
+  - reminders to save the file;
+  - a warning before closing unsaved work;
+  - one tab per draft.
+- **Openness:**
+  - a short consent notice before starting, and a privacy page (`privacy.html`);
+  - **Preview** shows exactly what the instructor sees, and students can add a note to any flag;
+  - an optional **AI-use disclosure**.
+
+**Instructor viewer** (`instructor.html`)
+
+- **Assignments:** title, paste policy, sources panel, word limits, due date, AI disclosure, flag thresholds, timestamp services, and "test assignment" for demo timestamps.
+- **Opening submissions:** single files, or the **zip your LMS produces** (Canvas, Moodle, Blackboard, Brightspace). The name the LMS gives each student is shown, with a warning when it doesn't match the file.
+- **Submission list:** filters (flagged, integrity failed, not checked in, follow-up) and check-in progress.
+- **Overview tab:** integrity checks, flags (including **shared passages** between students), the writing process, questions to ask, and a replay.
+- **Check-in notes:** record each answer and outcome, mark flags as benign or a concern, and **Print summary** to print or save a one-page record.
+- **Document tab / Read:** the submitted document as formatted, to copy, download or print.
+- **Export:** a spreadsheet of the class, with names or **anonymised for calibrating thresholds**.
+
+**Every page:** a theme menu (system, light, dark, sepia, high contrast), text size, tooltips explaining options, keyboard-navigable toolbar, and screen-reader announcements for formatting.
 
 ## Run it
 
-**Double-click `Draftwork.cmd`** (Windows) or run `sh launch.sh` (macOS/Linux). It starts the server and opens the browser. If Draftwork is already running, it just opens the page. Close the window to stop it. **`Draftwork (offline demo).cmd`** does the same with the demo TSA and a generated demo class, and opens the instructor page.
+**Double-click `Draftwork.cmd`** (Windows) or run `sh launch.sh` (macOS/Linux). **`Draftwork (offline demo).cmd`** uses the demo timestamp service and a generated demo class.
 
-The launcher (`launch.js`, also `npm run launch` / `npm run launch:demo`) takes `--port`, `--page instructor|student`, `--mock-tsa`, `--demo`, `--tsa <url>` and `--no-open`. It stays on port 8080 when it can, because drafts and saved assignments are stored in the browser per address. If another program holds the port, it moves to the next free one and warns you.
+The launcher (`launch.js`, also `npm run launch` / `npm run launch:demo`) takes these options:
+
+- `--port`
+- `--page instructor|student`
+- `--mock-tsa`
+- `--demo`
+- `--tsa <urls>`
+- `--no-open`
 
 To run just the server:
 
@@ -30,72 +63,94 @@ To run just the server:
 npm start
 ```
 
-Open http://localhost:8080. Timestamps go to `https://freetsa.org/tsr` by default. Use `--tsa <url>` to pick another authority.
+To deploy for a real class, see **[docs/DEPLOY.md](docs/DEPLOY.md)**. It covers a single container (`Dockerfile`), or static hosting plus the serverless relay in `deploy/relay-worker.js`.
 
-To work offline, use the demo TSA. It signs real CMS tokens, but the viewer marks them "not trusted":
-
-```bash
-npm run start:mock
-```
-
-To generate a demo class (15 composed essays, a transcriber, an autotyper, a dictation user, a stamp outage, a tampered file and one earlier assignment for a self-baseline) for **Load the demo class** in the viewer:
+To generate a demo class (composed essays, a transcriber, an autotyper, a copier, a dictation user, a stamp outage, a tampered file and an earlier assignment):
 
 ```bash
 npm run simulate
 ```
 
+## Tests
+
+Unit and integration tests: the format, tampering, the trust chain, flags on a simulated class, .docx, and zip import.
+
 ```bash
 npm test
 ```
 
-`node tools/report.js samples` prints the integrity results, flags and prompts for a folder of files.
+Real-browser tests (Edge/Chrome over the DevTools protocol): per-key typing, IME composition, lists, undo, paste blocking, refusing script input, the one-tab lock, receipts, and integrity.
+
+```bash
+npm run test:e2e
+```
+
+Live check that every approved timestamp service still answers and verifies (needs internet):
+
+```bash
+npm run test:live
+```
+
+`node tools/report.js samples` prints integrity results, flags and prompts for a folder of files.
 
 ## Layout
 
 ```
-server.js                 static server + /tsa relay (--mock-tsa for offline)
+server.js                 pages + /tsa relay with fallback, rate limit, security headers
+deploy/relay-worker.js    serverless relay for static hosting
 public/
-  index.html student.html instructor.html
-  css/app.css
-  js/core/canon.js        canonical JSON, SHA-256, gzip, base64
-  js/core/asn1.js         minimal DER reader/writer
-  js/core/tsa.js          RFC 3161 request, fetch and token verification (WebCrypto)
-  js/core/format.js       configs, events, replay, checkpoint hashing, file read/write
-  js/core/doc.js          formatted document model (text + marks + paragraph attributes)
-  js/core/export.js       HTML rendering, plain text, .docx writer
-  js/core/recorder.js     event log + checkpoint chain + stamp queue
-  js/core/analysis.js     integrity checks, signals, flags, prompts
-  js/core/store.js        IndexedDB autosave
-  js/ui/editor.js         the word-processor surface (every change becomes an event)
-  js/ui/report.js         the viewer (shared by instructor page and student preview)
-  js/ui/graph.js          production graph
-  js/ui/menu.js, tooltip.js, appearance.js, docui.js, icons.js
-  js/student.js, js/instructor.js
-tools/mock-tsa.js         demo time-stamping authority
-tools/simulate.js         synthetic class generator (drives the real Recorder)
-tools/report.js           CLI summary
-tests/draftwork.test.js
+  index.html student.html instructor.html privacy.html
+  js/core/   canon, asn1, tsa (RFC 3161 + chain verification), trust (approved services),
+             format, doc (formatted model), export (HTML/.docx), recorder, analysis, store, zipread
+  js/ui/     editor, report, graph, menu, tooltip, appearance, docui, icons
+tools/       mock-tsa, simulate, report
+tests/       draftwork.test.js, e2e.js, live-tsa.js
+docs/        DEPLOY.md, student-data-notice.md
 ```
 
 ## Decisions where the spec left room
 
-- **Timestamping from the browser** (open question): the sandbox posts to a relay URL set in the assignment config (`/tsa` by default, served by `server.js`). The relay keeps no state. The sandbox won't start a session until a test stamp succeeds. During an outage, writing continues and checkpoints queue. After 8 minutes the student gets a warning, and the viewer flags any stretch over 10 minutes. A stamp issued more than `stamp_lag_s` (120 s) after its checkpoint counts as late: it doesn't anchor time, so the stretch shows as a gap.
-- **TSA verification** checks the message imprint, the CMS `messageDigest` and the signature against the certificate embedded in the token (RSA and ECDSA). It does **not** chain that certificate to a trusted root; the viewer says so.
-- **What is stamped**: `SHA-256(canonical({c, range, events_hash, doc_hash, prev}))`. The first checkpoint's `prev` is a seed that binds the chain to the config hash, `student_label` and `created`. Relabelling someone else's file therefore breaks the chain.
-- **Format additions**: header `dictation_mode` and `attachments` (outline filename and SHA-256 only); `w` (wall clock) on `session_start`; `pane: "src"` on sources-pane edits; `from: "src"` on quotes pasted from the sources pane; `len` on `paste_blocked`; an `untrusted` event kind for refused script input. Changes made by scripts, which fire no trusted input event, are detected by comparing the page with the record; they're reverted and logged as untrusted.
-- **Formatting in the record**: the text model is unchanged (paragraphs are separated by `\n`), so every text analysis is unaffected.
-  - **Text events** may carry `m` (a mark bitmask for the inserted text) or `mr` (run-length masks).
-  - **`fmt`** events change marks over a range: `{p, n, set, clr}`, or `{p, mr}` to set them exactly.
-  - **`para`** events change paragraph attributes (`s` style, `al` alignment, `li` list, `in` indent): `{a, b, set}`, or `{a, pa}` exactly.
-  - **Paragraph rules** for Enter and merges are deterministic and live in `doc.js`, so replay rebuilds exactly what the student saw.
-  - **`final.format`** stores the final marks and paragraphs, and the replay check compares it too.
-  - **`doc_hash`** covers the formatting once the document has any; it stays the text hash otherwise, so unformatted files from before still verify.
-  - **Fonts and spacing** are whole-document settings stored in `header.doc_style`, used for display only.
-  - **Undo/redo** is recorded as the edits that restore the earlier state (`it: historyUndo/historyRedo`).
-  - **Find & replace** replacements are limited to 50 typed characters, so they can't carry pasted text in.
-- **Flag thresholds** live in the assignment config, so the student preview uses the same values as the instructor. The UI lets instructors both loosen and tighten them; that policy question is still open.
-- **Flags are visible to students before submission**, following principle 5.
-- **Class-relative flags** (too fast, machine-regular rhythm) switch on at `min_class_size` (15) submissions for the same config hash. Comparisons are only against the loaded class and the same student's other files (matched by `student_label`).
-- **Signal definitions**, where the spec is informal: *revision reach* is the share of edits made before the last sentence of the document. *Linearity* is the share of final characters that were inserted with only whitespace after them. A *transcription stretch* is a run of typing at the cursor; speed variation is measured over 100-character chunks, excluding time spent in another window. *Paste, then retype* matches the length of a linear run at its end, or at any pause of 5 s or more inside it.
+- **Timestamping from the browser** (open question):
+  - **Relay:** the sandbox posts to a relay set in the assignment (`/tsa` by default). The relay tries several services in turn.
+  - **Starting:** the sandbox won't start until a test stamp succeeds, and it refuses a real assignment on a test-mode server.
+  - **Outages:** writing continues and checkpoints queue. The student is warned after 8 minutes, and the viewer flags any stretch over 10 minutes.
+  - **Late stamps:** a stamp issued more than `stamp_lag_s` (120 s) after its checkpoint doesn't anchor time, so that stretch shows as a gap.
+- **Which timestamps count:** a token passes only if all of these hold:
+  - its signature verifies;
+  - the signer is a time-stamping certificate, valid at the stamp time;
+  - the signer chains, by verified signatures, to a **pinned CA public key** (`trust.js`: FreeTSA, DigiCert, Sectigo, GlobalSign, SSL.com).
 
-All thresholds are starting values to calibrate in a pilot.
+  Pinning keys rather than certificates survives the services' yearly certificate renewals. Anything else fails, so a forger can't run their own timestamp service. Demo timestamps pass only on assignments marked as tests. Assignments can add more approved services.
+- **What is stamped:** `SHA-256(canonical({c, range, events_hash, doc_hash, prev}))`. The first `prev` binds the chain to the config, `student_label` and `created`, so relabelling a file breaks it.
+- **Format additions** (all optional, so older files still verify):
+  - **Header:** `dictation_mode`, `attachments` (name and hash only), `doc_style`, `consent`, `flag_notes`, `ai_use`.
+  - **Events:** `w` on `session_start`; `pane: "src"`; `from: "src"`; `len` on `paste_blocked`; and the `untrusted` kind, for script input, including script-made clipboard and drop events.
+- **Formatting in the record:**
+  - **Text model:** unchanged (paragraphs separated by `\n`), so text analyses are unaffected.
+  - **Text events** may carry `m`/`mr` marks.
+  - **`fmt`** and **`para`** events change marks and paragraph attributes (`s`, `al`, `li`, `in`, and `pb` for a page break).
+  - **Paragraph rules** live in `doc.js` and are deterministic.
+  - **`final.format`** is compared on replay.
+  - **`doc_hash`** covers formatting once there is any.
+  - **Undo/redo** is recorded as restoring edits.
+  - **Find & replace** is limited to 50 typed characters.
+- **Shared passages:** flagged at 30+ identical consecutive words with another submission for the same assignment. Text pasted from the sources panel is excluded.
+- **Instructor notes** (answers, outcomes, flag reviews) are kept in the instructor's browser and included in print summaries and exports.
+- **Flag thresholds** travel with the assignment, so student previews match. Instructors can loosen or tighten them; that policy question is still open.
+- **Flags are visible to students before submission**, following principle 5.
+- **Class-relative flags** switch on at `min_class_size` (15) submissions.
+- **Signal definitions**, where the spec is informal:
+  - *Revision reach:* edits made before the document's last sentence.
+  - *Linearity:* final characters inserted with only whitespace after them.
+  - *Transcription stretch:* a run of typing at the cursor, with speed measured over 100-character chunks, excluding time away.
+  - *Paste, then retype:* matches the length of a linear run at its end or at any pause of 5 s or more.
+
+All thresholds are starting values to calibrate in a pilot. The anonymised export is meant for exactly that.
+
+## Not done yet
+
+- **Footnotes and a citation generator** (APA/MLA).
+- **Per-selection fonts and sizes.**
+- **Tested browsers:** the browser tests run in Edge and Chrome; Firefox and Safari aren't covered.
+- **Real assistive technology:** OS dictation, and screen readers such as NVDA and VoiceOver, still need testing with the actual tools.
+- **The "later" list:** a timed in-class mode, other kinds of work (code, maths, lab reports), and LTI integration.

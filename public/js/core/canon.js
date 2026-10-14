@@ -80,6 +80,9 @@ export function fromBase64Url(s) {
   return fromBase64(s);
 }
 
+// A short, readable form of a SHA-256 hex digest for receipts: 8 groups of 4.
+export const fingerprintCode = (hexStr) => hexStr.slice(0, 32).toUpperCase().match(/.{4}/g).join(' ');
+
 export function randomHex(nBytes) {
   return hex(crypto.getRandomValues(new Uint8Array(nBytes)));
 }

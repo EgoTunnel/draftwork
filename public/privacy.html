@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Draftwork Privacy</title>
+  <script>try{var a=JSON.parse(localStorage.getItem('draftwork.appearance')||'{}');if(a.theme&&a.theme!=='system')document.documentElement.dataset.theme=a.theme;if(a.size&&a.size!=='normal')document.documentElement.dataset.size=a.size}catch(e){}</script>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./" id="brand">Draftwork</a>
+    <span class="spacer"></span>
+    <span class="appearance-slot"></span>
+  </header>
+  <main class="page narrow prose">
+    <h1>What Draftwork records, and who sees it</h1>
+
+    <h2>What’s recorded</h2>
+    <ul>
+      <li>Every change you make to your writing (typing, deleting, formatting, moving text) and when you made it.</li>
+      <li>When the Draftwork window loses or regains focus, and when you start and stop writing.</li>
+      <li>Attempts to paste from outside the document, as a length only. Pasted text that’s refused is not kept.</li>
+      <li>What you type into the file yourself: your name and student number, any notes, your AI-use answer, and the names of any outline files you attach (never the files themselves).</li>
+    </ul>
+    <p>Draftwork does not record other windows, websites, your screen, your camera or microphone, or anything outside the writing page.</p>
+
+    <h2>Where it goes</h2>
+    <ul>
+      <li>While you write, your draft is stored in this browser on this computer.</li>
+      <li>About once a minute, a <em>fingerprint</em> of your progress (a SHA-256 hash, which can’t be turned back into your text) is sent to a public timestamp service, through this site’s relay, to prove when that progress existed.</li>
+      <li>Your writing leaves your computer only when you save the file and upload it to your course yourself.</li>
+    </ul>
+
+    <h2>Who sees it</h2>
+    <ul>
+      <li>Your instructor, when they open the file you submitted. They see your final document, a replay of how it was written, and a few measures and flags about the writing process.</li>
+      <li>You can see exactly the same view at any time with <strong>Preview</strong>, and add a note to anything that’s flagged.</li>
+    </ul>
+
+    <h2>How it’s used</h2>
+    <p>A process pattern can only ever lead to a conversation with your instructor, never directly to a penalty. Flags have innocent explanations, and those are shown beside them.</p>
+
+    <h2>How long it’s kept</h2>
+    <p>Your submitted file is kept by your course like any other submission, under your institution’s retention rules. Drafts in this browser stay until you discard them or clear the browser’s data. Your instructor’s check-in notes are kept in their browser.</p>
+
+    <p class="muted small">Institutions: a template notice you can adapt is in <code>docs/student-data-notice.md</code> in the Draftwork repository.</p>
+  </main>
+  <script type="module">
+    import { $, LOGO } from './js/ui/dom.js';
+    import { appearanceButton } from './js/ui/appearance.js';
+    import { initTooltips } from './js/ui/tooltip.js';
+    initTooltips();
+    $('#brand').insertAdjacentHTML('afterbegin', LOGO);
+    $('.appearance-slot').append(appearanceButton());
+  </script>
+</body>
+</html>

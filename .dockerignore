@@ -1,0 +1,7 @@
+node_modules
+samples
+tests
+.git
+.claude
+*.draftwork
+*.cmd

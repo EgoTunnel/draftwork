@@ -23,12 +23,13 @@
     <section id="view-review" role="tabpanel">
       <div id="review-list">
         <h1>Submissions</h1>
-        <label class="dropzone" id="drop" for="file-input" data-tip="Files are opened in this browser only; nothing is uploaded.">
-          <strong>Drop .draftwork files here</strong> or click to choose
-          <input type="file" id="file-input" accept=".draftwork,application/gzip,application/json" multiple class="hidden">
+        <label class="dropzone" id="drop" for="file-input" data-tip="Files are opened in this browser only; nothing is uploaded. You can drop the zip your LMS gives you for “download all submissions”.">
+          <strong>Drop .draftwork files or your LMS’s submissions zip here</strong><br>or click to choose
+          <input type="file" id="file-input" accept=".draftwork,.zip,application/zip,application/gzip,application/json" multiple class="hidden">
         </label>
         <div class="row" style="margin-top:10px">
           <button class="btn small hidden" id="load-demo" type="button" data-tip="Open a set of sample submissions to try the viewer">Load demo class</button>
+          <button class="btn small hidden" id="export-csv" type="button" data-tip="Download a spreadsheet of every open submission: checks, flags, check-in outcomes and process measures. Names can be left out for sharing calibration data.">Export…</button>
           <button class="btn small ghost hidden" id="clear-files" type="button">Clear</button>
           <span class="small muted" id="load-status" role="status"></span>
         </div>
@@ -67,12 +68,22 @@
             <div style="flex:1"><label for="f-min">Min words</label><input type="number" id="f-min" min="0" placeholder="Optional"></div>
             <div style="flex:1"><label for="f-max">Max words</label><input type="number" id="f-max" min="0" placeholder="Optional"></div>
           </div>
+          <div>
+            <label for="f-due" data-tip="Shown to students while they write. Work after this time is marked in the viewer, but not blocked.">Due <span class="hint">(optional)</span></label>
+            <input type="datetime-local" id="f-due">
+          </div>
+          <label class="check" data-tip="Students say whether and how they used AI tools (for ideas, feedback, drafting…). Their answer is shown with their work."><input type="checkbox" id="f-ai"> <span>Ask students to disclose AI use</span></label>
           <details>
             <summary>Advanced</summary>
             <div class="stack" style="margin-top:12px">
               <div>
-                <label for="f-tsa" data-tip="Where students’ progress is sent to be timestamped. Leave as /tsa unless you run your own relay.">Timestamp service</label>
+                <label for="f-tsa" data-tip="Where students’ progress is sent to be timestamped. Leave as /tsa unless you run a separate relay.">Timestamp service</label>
                 <input type="text" id="f-tsa" value="/tsa">
+              </div>
+              <label class="check" data-tip="Accept timestamps from Draftwork’s built-in demo service, which proves nothing about time. Only for trying things out, never for real assignments."><input type="checkbox" id="f-demo"> <span>Test assignment (accept demo timestamps)</span></label>
+              <div>
+                <label for="f-anchors" data-tip="Draftwork already accepts FreeTSA, DigiCert, Sectigo, GlobalSign and SSL.com. Add another service here, one per line, as: name, SHA-256 of its CA public key.">Extra approved timestamp services <span class="hint">(optional)</span></label>
+                <textarea id="f-anchors" rows="2" placeholder="My University TSA, 3f2a…(64 hex characters)"></textarea>
               </div>
               <div>
                 <div class="label-like" data-tip="When each flag is raised. These are starting values; students’ previews use the same settings.">Flag thresholds</div>

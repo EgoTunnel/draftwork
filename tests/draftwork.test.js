@@ -11,14 +11,15 @@ import {
 } from '../public/js/core/format.js';
 import { analyzeFile, finalize } from '../public/js/core/analysis.js';
 import { DocModel, MARKS, diffEvents } from '../public/js/core/doc.js';
-import { toDocx } from '../public/js/core/export.js';
+import { toDocx, zip } from '../public/js/core/export.js';
+import { readZip, lmsName, namesMatch } from '../public/js/core/zipread.js';
 
 const mock = await createMockTsa();
 const stampAt = async (hash, when) => toBase64(A.raw(extractToken(await mock.respond(buildRequest(unhex(hash)), when))));
 
 // Builds a small file through the real Recorder with a fake clock.
-async function makeFile(script, { config } = {}) {
-  config = config || newConfig({ title: 'Test' });
+async function makeFile(script, { config, stamper } = {}) {
+  config = config || newConfig({ title: 'Test', allowDemoTsa: true });
   const cfgHash = await configHash(config);
   let clock = Date.UTC(2026, 9, 14, 12, 0, 0);
   const times = [];
@@ -27,7 +28,7 @@ async function makeFile(script, { config } = {}) {
     cfgHash,
     header: { student_label: 'Test Student', created: new Date(clock).toISOString() },
     now: () => clock,
-    stamper: (h, cp) => stampAt(h, new Date((times[cp.range[1]] ?? clock) + 500)),
+    stamper: (h, cp) => (stamper || stampAt)(h, new Date((times[cp.range[1]] ?? clock) + 500)),
     onChange: (what, e) => {
       if (what === 'event') times[e.s] = clock;
     },
@@ -173,6 +174,22 @@ test('a stamp dated before its events fails TSA verification', async () => {
   assert.equal((await integrityOf(copy)).tsa, 'fail');
 });
 
+test('timestamps from an unapproved service fail, and demo stamps need the assignment to allow them', async () => {
+  const forger = await createMockTsa('Totally Real Timestamp Authority');
+  const forgedStamp = async (h, when) => toBase64(A.raw(extractToken(await forger.respond(buildRequest(unhex(h)), when))));
+  const forged = await makeFile(async ({ type }) => type('Forged history'), { stamper: forgedStamp });
+  const f = finalize(await analyzeFile(forged.file));
+  const tsa = f.integrity.find((c) => c.id === 'tsa');
+  assert.equal(tsa.status, 'fail');
+  assert.match(tsa.detail, /not an approved timestamp service|not a time-stamping certificate/);
+
+  const strict = newConfig({ title: 'Strict' });
+  const demo = await makeFile(async ({ type }) => type('Demo stamps'), { config: strict });
+  assert.equal((await integrityOf(demo.file)).tsa, 'fail');
+  const allowed = await makeFile(async ({ type }) => type('Demo stamps'));
+  assert.equal((await integrityOf(allowed.file)).tsa, 'warn');
+});
+
 test('untrusted input and large drag-and-drop insertions are flagged', async () => {
   const { file } = await makeFile(async ({ type, rec, wait }) => {
     type('Some text. ');
@@ -257,12 +274,46 @@ test('.docx export is a valid zip with the expected parts', () => {
   assert.equal(view.getUint32(0, true), 0x04034b50);
   const eocd = bytes.length - 22;
   assert.equal(view.getUint32(eocd, true), 0x06054b50);
-  assert.equal(view.getUint16(eocd + 10, true), 7);
+  assert.equal(view.getUint16(eocd + 10, true), 8);
   const text = new TextDecoder().decode(bytes);
   assert.ok(text.includes(' &amp; &lt;stuff&gt;'));
   assert.ok(text.includes('<w:b/></w:rPr><w:t xml:space="preserve">Text</w:t>'));
   assert.ok(text.includes('<w:pStyle w:val="Title"/>'));
   assert.ok(text.includes('<w:tab/>'));
+});
+
+test('LMS zips: entries are read and student names recognised', async () => {
+  const inner = await serializeFile((await makeFile(async ({ type }) => type('abc'))).file);
+  const archive = zip([
+    ['smithjane_LATE_123456_7890123_essay.draftwork', inner],
+    ['Jane Smith_42_assignsubmission_file_\\essay.draftwork', inner],
+    ['readme.txt', 'x'],
+  ]);
+  const entries = await readZip(archive);
+  assert.equal(entries.length, 3);
+  assert.equal((await parseFile(entries[0].bytes)).header.student_label, 'Test Student');
+  assert.deepEqual(lmsName(entries[0].name), { lms: 'Canvas', name: 'smithjane' });
+  assert.deepEqual(lmsName(entries[1].name), { lms: 'Moodle', name: 'Jane Smith' });
+  assert.deepEqual(lmsName('12345-678 - Jane Smith - Oct 14, 2026 1200 PM - essay.draftwork'), { lms: 'Brightspace', name: 'Jane Smith' });
+  assert.deepEqual(lmsName('Essay 2_jsmith_attempt_2026-10-14-12-00-00_essay.draftwork'), { lms: 'Blackboard', name: 'jsmith' });
+  assert.ok(namesMatch('smithjane', 'Jane Smith, 000123'));
+  assert.ok(namesMatch('jsmith', 'J. Smith'));
+  assert.ok(!namesMatch('Jane Doe', 'Blake Okafor'));
+});
+
+test('page breaks and Works Cited style survive Enter and export', () => {
+  const d = new DocModel();
+  d.applyText(0, 0, 'End of essay\nWorks Cited', 0);
+  d.applyPara({ a: 1, b: 1, set: { pb: true, al: 'c' } });
+  d.applyText(d.text.length, 0, '\nSmith, J. A Book.', 0);
+  assert.equal(d.paras[2].pb, undefined, 'Enter does not copy the page break');
+  d.applyPara({ a: 2, b: 1, set: { s: 'bib', al: 'l' } });
+  const xml = new TextDecoder().decode(toDocx(d, {}, 'T'));
+  assert.ok(xml.includes('<w:pageBreakBefore/>'));
+  assert.ok(xml.includes('<w:pStyle w:val="Bibliography"/>'));
+  assert.ok(xml.includes('PAGE'));
+  d.applyPara({ a: 1, b: 1, set: { pb: false } });
+  assert.equal(d.paras[1].pb, undefined, 'clearing a break leaves no trace in the format');
 });
 
 test('simulated class: flags land on the right writers and nowhere else', async () => {
@@ -285,6 +336,9 @@ test('simulated class: flags land on the right writers and nowhere else', async 
   assert.ok(get('Wren Offline').has('gap'));
   assert.ok(get('Tam Pered').has('integrity-replay'));
   assert.equal(get('Dee Ctation').size, 0, 'dictation is never flagged as a large insertion');
-  const composed = Object.entries(flagsOf).filter(([k]) => !/Ranscriber|Typer|Offline|Pered|Ctation/.test(k));
+  assert.ok(get('Sam Copier').has('overlap'), 'the copied paragraph is found');
+  assert.ok(get('Blake Okafor').has('overlap'), 'and shown on the original too');
+  const composed = Object.entries(flagsOf).filter(([k]) => !/Ranscriber|Typer|Offline|Pered|Ctation|Copier|Blake/.test(k));
   for (const [k, v] of composed) assert.equal(v.size, 0, `${k} should have no flags, got ${[...v]}`);
+  assert.deepEqual([...get('Blake Okafor')], ['overlap']);
 });

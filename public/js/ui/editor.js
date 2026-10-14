@@ -362,6 +362,8 @@ export class Editor {
     const { start, end } = this.getSel();
     const on = (this.activeMarks() & bit) === bit;
     const exclusive = bit === MARKS.sup ? MARKS.sub : bit === MARKS.sub ? MARKS.sup : 0;
+    const name = { [MARKS.b]: 'Bold', [MARKS.i]: 'Italic', [MARKS.u]: 'Underline', [MARKS.s]: 'Strikethrough', [MARKS.sup]: 'Superscript', [MARKS.sub]: 'Subscript', [MARKS.hl]: 'Highlight' }[bit];
+    this.announce(`${name} ${on ? 'off' : 'on'}`);
     if (start === end) {
       const m = this.caretMarks(start);
       this.pendingMarks = on ? m & ~bit : (m | bit) & ~exclusive;
@@ -416,6 +418,28 @@ export class Editor {
     this.emit({ k: 'para', a, pa, it: delta > 0 ? 'formatIndent' : 'formatOutdent' });
     const { start, end } = this.sel;
     this.after(end, { select: [start, end], keepPending: true });
+  }
+
+  // Starts a new page at the caret (Ctrl+Enter), splitting the paragraph if needed.
+  pageBreak() {
+    if (!this.active()) return;
+    const { start, end } = this.getSel();
+    const k = this.doc.paraIndexAt(start);
+    const [ps] = this.doc.paraBounds()[k];
+    this.begin('edit');
+    if (start === ps && start === end) {
+      this.emit({ k: 'para', a: k, b: 1, set: { pb: true }, it: 'insertPageBreak' });
+      this.after(start);
+    } else {
+      this.emit({ k: start === end ? 'ins' : 'rep', p: start, n: end - start || undefined, x: '\n', it: 'insertPageBreak' });
+      this.emit({ k: 'para', a: k + 1, b: 1, set: { pb: true }, it: 'insertPageBreak' });
+      this.after(start + 1);
+    }
+    this.announce('Page break inserted');
+  }
+
+  announce(msg) {
+    if (this.o.onAnnounce) this.o.onAnnounce(msg);
   }
 
   insertSymbol(ch) {
@@ -567,12 +591,23 @@ export class Editor {
       if (this.active()) this.syncFromDom('insertCompositionText', 'ime');
     });
     el.addEventListener('keydown', (e) => this.onKeyDown(e));
+    // Clipboard and drop events made by scripts are refused like any other untrusted input.
+    const untrusted = (e) => {
+      if (e.isTrusted) return false;
+      e.preventDefault();
+      if (this.active()) {
+        this.emit({ k: 'untrusted', it: `synthetic-${e.type}`, len: 0 });
+        if (this.o.onUntrusted) this.o.onUntrusted();
+      }
+      return true;
+    };
     el.addEventListener('copy', (e) => {
+      if (untrusted(e)) return;
       if (this.copySelection(e)) e.preventDefault();
     });
     el.addEventListener('cut', (e) => {
       e.preventDefault();
-      if (!this.active()) return;
+      if (untrusted(e) || !this.active()) return;
       if (this.copySelection(e)) {
         const { start, end } = this.sel;
         this.replace(start, end, '', 'deleteByCut', { group: 'edit' });
@@ -580,12 +615,14 @@ export class Editor {
     });
     el.addEventListener('paste', (e) => {
       e.preventDefault();
+      if (untrusted(e)) return;
       this.pasteText(e.clipboardData && e.clipboardData.getData('text/plain'), 'insertFromPaste');
     });
     el.addEventListener('dragstart', (e) => e.preventDefault());
+    el.addEventListener('dragover', (e) => e.preventDefault());
     el.addEventListener('drop', (e) => {
       e.preventDefault();
-      if (!this.active()) return;
+      if (untrusted(e) || !this.active()) return;
       const pos = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY) : null;
       if (pos) {
         const p = this.offsetOf(pos.startContainer, pos.startOffset);
@@ -707,6 +744,7 @@ export class Editor {
       if (k === 's' && this.o.keys.save) return run(() => this.o.keys.save());
       if (k === 'p' && this.o.keys.print) return run(() => this.o.keys.print());
     }
+    if (mod && !e.altKey && e.key === 'Enter') return run(() => this.pageBreak());
     if (mod && e.altKey) {
       if (k === '1') return run(() => this.setParaAttr({ s: 'h1' }, 'formatStyle'));
       if (k === '2') return run(() => this.setParaAttr({ s: 'h2' }, 'formatStyle'));

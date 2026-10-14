@@ -6,6 +6,7 @@ import {
 } from './format.js';
 import { DocModel, isFormatEvent } from './doc.js';
 import { verifyToken } from './tsa.js';
+import { anchorsFor } from './trust.js';
 
 const ACTIVE_GAP_MS = 5 * 60_000; // gaps longer than this do not count as active time
 const SNAPSHOT_EVERY = 250;
@@ -129,6 +130,7 @@ export async function analyzeFile(file, { expectedConfigHash = null, knownConfig
   let text = '';
   let src = '';
   const atEnd = [];
+  const charOrigin = [];
   let replayError = null;
   let active = 0;
   let prevT = null;
@@ -341,6 +343,8 @@ export async function analyzeFile(file, { expectedConfigHash = null, knownConfig
           model.apply(e);
           text = model.text;
           atEnd.splice(e.p, n, ...new Array(x.length).fill(end));
+          // Which event wrote each character (negative: quoted from the sources panel).
+          charOrigin.splice(e.p, n, ...new Array(x.length).fill(e.k === 'paste_in' && e.from === 'src' ? -1 - i : i));
           typed += x.length;
           deletedChars += n;
           cursor = e.p + x.length;
@@ -367,7 +371,7 @@ export async function analyzeFile(file, { expectedConfigHash = null, knownConfig
     replayText: text, replaySrc: src, replayFormat: model.format(),
     raw: {
       pauses, iki, largeInserts, delEpisodes, structural, blurs, runs, bursts, awayBursts, pasteBlocked, untrusted,
-      srcPastes, textEvents, behindEvents, typed, deletedChars, atEnd, active,
+      srcPastes, textEvents, behindEvents, typed, deletedChars, atEnd, active, charOrigin,
     },
   };
 
@@ -493,6 +497,7 @@ async function integrityChecks(A, { replayError, problems, cpEnds, expectedConfi
 
   // 5. TSA tokens
   A.stamps = [];
+  const anchors = anchorsFor(A.config);
   {
     const errs = [];
     let stamped = 0;
@@ -507,13 +512,16 @@ async function integrityChecks(A, { replayError, problems, cpEnds, expectedConfi
       if (cp.tsa) {
         stamped++;
         const hash = A.cpHashes[k] || await checkpointHash(cp);
-        const v = await verifyToken(cp.tsa, hash);
+        const v = await verifyToken(cp.tsa, hash, { anchors, allowDemo: !!A.config.allow_demo_tsa });
         st.ok = v.ok;
         st.genTime = v.genTime;
         st.signer = v.signer;
-        if (v.signer) signers.add(v.signer);
+        if (v.signer) signers.add(v.anchor ? `${v.signer} (${v.anchor})` : v.signer);
         if (v.demo) demo = true;
-        if (!v.ok) errs.push(`checkpoint ${k}: ${v.errors[0]}`);
+        if (!v.ok) {
+          const msg = v.errors[0];
+          if (!errs.some((e) => e.endsWith(msg))) errs.push(`checkpoint ${k}: ${msg}`);
+        }
         else {
           st.lag = v.genTime.getTime() - cpTime;
           if (st.lag < -T.stamp_lag_s * 1000) errs.push(`checkpoint ${k} was stamped ${fmtDuration(-st.lag)} before the time its events claim`);
@@ -530,13 +538,13 @@ async function integrityChecks(A, { replayError, problems, cpEnds, expectedConfi
     const bits = [];
     if (errs.length) bits.push(cap(errs.slice(0, 3).join('; ')) + '.');
     else if (stamped) bits.push(`${stamped} verified, from ${[...signers].join(', ')}.`);
-    if (demo) bits.push('Demo timestamps (testing only).');
+    if (demo && !errs.length) bits.push('Demo timestamps: accepted because this is a test assignment.');
     if (missing) bits.push(`${missing} not stamped.`);
     if (late) bits.push(`${late} stamped late.`);
     checks.push({
       id: 'tsa',
       label: 'Timestamps are verified',
-      tip: 'Each checkpoint carries an RFC 3161 timestamp from an outside service. Signatures are checked against the certificate in the token (not against a trusted root), and stamp times must match the recorded times.',
+      tip: 'Each checkpoint carries an RFC 3161 timestamp from an outside service. Each must be signed by an approved timestamp service (verified up to a pinned certificate authority), and its time must match the recorded times.',
       status,
       detail: bits.join(' '),
     });
@@ -655,6 +663,58 @@ function computeSignals(A) {
   ];
 }
 
+// ---------- shared passages between submissions ----------
+
+const SHINGLE = 8;
+
+// Normalised words of the final text with their character offsets. Words quoted from the
+// sources panel are marked, so two students quoting the same source don't count as overlap.
+function wordsOf(A) {
+  if (A._words) return A._words;
+  const text = A.file.final.text;
+  const origin = A.raw.charOrigin;
+  const words = [];
+  for (const m of text.matchAll(/\S+/g)) {
+    const w = m[0].toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+    if (!w) continue;
+    const o = origin[m.index];
+    words.push({ w, at: m.index, quote: o != null && o < 0, ev: o == null ? 0 : o < 0 ? -1 - o : o });
+  }
+  const index = new Map();
+  for (let i = 0; i + SHINGLE <= words.length; i++) {
+    const key = words.slice(i, i + SHINGLE).map((x) => x.w).join(' ');
+    if (!index.has(key)) index.set(key, []);
+    index.get(key).push(i);
+  }
+  A._words = { words, index };
+  return A._words;
+}
+
+// Longest runs of identical (non-quoted) words shared by A and B, at least `min` words long.
+export function sharedPassages(A, B, min) {
+  const a = wordsOf(A);
+  const b = wordsOf(B);
+  const runs = [];
+  for (let i = 0; i + SHINGLE <= a.words.length; i++) {
+    const key = a.words.slice(i, i + SHINGLE).map((x) => x.w).join(' ');
+    const hitsB = b.index.get(key);
+    if (!hitsB) continue;
+    let best = 0;
+    for (const j of hitsB) {
+      let n = 0;
+      while (i + n < a.words.length && j + n < b.words.length && a.words[i + n].w === b.words[j + n].w &&
+        !a.words[i + n].quote && !b.words[j + n].quote) n++;
+      best = Math.max(best, n);
+    }
+    if (best >= min) {
+      const text = A.file.final.text.slice(a.words[i].at, a.words[i + best - 1].at + 40).split(/\s+/).slice(0, best).join(' ');
+      runs.push({ words: best, at: a.words[i].at, ev: a.words[i].ev, text });
+      i += best - 1;
+    }
+  }
+  return runs;
+}
+
 // ---------- layer 2 and 4 ----------
 
 const BENIGN = {
@@ -667,6 +727,7 @@ const BENIGN = {
   away: ['Checking notes or sources in another tab', 'Reading the prompt or rubric in another window'],
   fast: ['Fast writer', 'Drafted on paper first'],
   rhythm: ['Weak signal; some practised typists are very regular'],
+  overlap: ['Both quoted the same source without using the sources panel', 'Shared wording from the assignment prompt or class notes', 'Collaboration that the assignment allowed'],
 };
 
 function flag(kind, id, title, reason, moments, benign) {
@@ -761,6 +822,23 @@ export function finalize(A, { cohort = [A], priors = [] } = {}) {
       raw.awayBursts.slice(0, 5).map((b) => ({ i: b.i, label: `${b.words} words after ${fmtDuration(b.awayMs)} away, ${clock(b.i)}` })), BENIGN.away));
   }
 
+  // Long passages that also appear in another student's submission for this assignment.
+  {
+    const me = String(A.header.student_label || '').trim().toLowerCase();
+    const found = [];
+    for (const B of cohort) {
+      if (B === A || String(B.header.student_label || '').trim().toLowerCase() === me) continue;
+      for (const run of sharedPassages(A, B, T.overlap_words)) found.push({ ...run, other: B.header.student_label || 'another student' });
+    }
+    if (found.length) {
+      found.sort((x, y) => y.words - x.words);
+      const others = [...new Set(found.map((f) => f.other))];
+      flags.push(flag('pattern', 'overlap', 'Shared passage',
+        `${found[0].words} words in a row also appear in ${others.length === 1 ? `${others[0]}’s submission` : `the submissions of ${others.join(', ')}`} (quotes from the sources panel are not counted).`,
+        found.slice(0, 5).map((f) => ({ i: f.ev, label: `${f.words} words shared with ${f.other}`, text: f.text })), BENIGN.overlap));
+    }
+  }
+
   // Class-relative flags switch on only above the minimum class size.
   const classOn = cohort.length >= T.min_class_size;
   if (classOn) {
@@ -813,6 +891,7 @@ function buildPrompts(A, flags) {
     else if (f.id === 'unusual') q = `At ${clock(m.i)} a long stretch of text arrived in one go (${m.label.split(' at ')[0]}). How did you enter that part?`;
     else if (f.id === 'gap') q = `The timestamps stop during ${m.label.replace('Gap ', '')}. What happened during that stretch?`;
     else if (f.id === 'untrusted') q = `At ${clock(m.i)} something other than the keyboard tried to change the text. Do you use any browser extensions while writing?`;
+    else if (f.id === 'overlap') q = `This passage ("${snippet(m.text)}") also appears in another submission. Where did the wording come from?`;
     else if (f.id === 'fast') q = 'You wrote this quickly for its length. Walk me through how you prepared before you started typing.';
     else if (f.id === 'rhythm') q = 'Your typing rhythm is unusually even. Tell me about how you typed this one: one sitting, any tools?';
     if (q) add({ i: m.i, title: f.title, question: q, flagged: true });

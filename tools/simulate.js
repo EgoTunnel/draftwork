@@ -292,11 +292,11 @@ function autotyper(sim, r, paras) {
 
 export async function simulateClass({ students = 15, seed = 7 } = {}) {
   const mock = await createMockTsa();
-  const config = newConfig({ title: 'Essay 2: Cities and Memory', paste: 'block', sourcesPane: true, wordsMin: 300, wordsMax: 1200 });
+  const config = newConfig({ title: 'Essay 2: Cities and Memory', paste: 'block', sourcesPane: true, wordsMin: 300, wordsMax: 1200, allowDemoTsa: true });
   config.nonce = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
   config.created = '2026-10-01T09:00:00.000Z';
   const cfgHash = await configHash(config);
-  const prior = newConfig({ title: 'Essay 1: A Place I Know', paste: 'block', sourcesPane: false });
+  const prior = newConfig({ title: 'Essay 1: A Place I Know', paste: 'block', sourcesPane: false, allowDemoTsa: true });
   prior.nonce = '0f1e2d3c4b5a69788796a5b4c3d2e1f0';
   prior.created = '2026-09-10T09:00:00.000Z';
   const priorHash = await configHash(prior);
@@ -350,6 +350,14 @@ export async function simulateClass({ students = 15, seed = 7 } = {}) {
   // Same student, earlier assignment, for the self-baseline.
   await run(names[0], prior, priorHash, -24 * 20, (sim, r) => composer(sim, r, essay(rng(99), 4, 5), { sessions: 2, quote: false }));
 
+  // Copies one paragraph of Blake Okafor's essay into an otherwise original piece.
+  {
+    const r1 = rng(seed * 13 + 1);
+    const blake = essay(r1, r1.int(4, 6), 5);
+    const own = essay(rng(506), 4, 5);
+    own.splice(2, 0, blake[1]);
+    await run('Sam Copier', config, cfgHash, 49, (sim, r) => composer(sim, r, own, { sessions: 1, quote: false }));
+  }
   await run('T. Ranscriber', config, cfgHash, 50, (sim, r) => transcriber(sim, r, essay(rng(501), 5, 5)));
   await run('Otto Typer', config, cfgHash, 52, (sim, r) => autotyper(sim, r, essay(rng(502), 5, 5)));
   await run('Dee Ctation', config, cfgHash, 54, (sim, r) => composer(sim, r, essay(rng(503), 4, 5), { dictation: true, quote: false, sessions: 1 }));

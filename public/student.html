@@ -57,11 +57,25 @@
           <textarea id="notes-input" rows="2" placeholder="e.g. Outlined on paper first"></textarea>
         </div>
         <label class="check" data-tip="Dictated text arrives in chunks. This adds a note to your file so the chunks are read as dictation."><input type="checkbox" id="dictation-input"> <span>I’m using dictation</span></label>
+        <div class="consent">
+          <strong>Before you start</strong>
+          <ul>
+            <li>Every edit you make, and when you make it, is saved in your file so your instructor can replay how you wrote.</li>
+            <li>While you write, only a fingerprint of your progress is sent online, to timestamp it. Your text stays on this computer until you upload the file.</li>
+            <li>Your instructor may ask you about moments in your writing. Nothing here is a grade: it can only lead to a conversation.</li>
+          </ul>
+          <label class="check"><input type="checkbox" id="consent-input" required> <span>I understand what’s recorded. <a href="privacy.html" target="_blank" rel="noopener">More about privacy</a></span></label>
+        </div>
         <div class="row">
           <button class="btn primary" type="submit" id="start-btn">Start</button>
           <span class="small muted" id="start-status"></span>
         </div>
       </form>
+
+      <details class="card hidden" id="versions-card">
+        <summary data-tip="Draftwork keeps automatic copies of your draft as you write. Restoring one continues from that point.">Earlier versions</summary>
+        <div id="versions-list" class="stack-sm" style="margin-top:10px"></div>
+      </details>
 
       <div class="card hidden" id="file-card">
         <div class="row">
@@ -74,8 +88,11 @@
     </main>
   </div>
 
+  <div id="sr-status" class="sr-only" aria-live="polite" role="status"></div>
+
   <!-- Writer -->
   <div id="screen-writer" class="writer hidden">
+    <a class="skip-link" href="#editor" id="skip-doc">Skip to document</a>
     <header class="appbar">
       <a class="brand-mini" href="./" id="brand2" aria-label="Draftwork home" data-tip="Draftwork"></a>
       <div class="appbar-main">
@@ -127,6 +144,8 @@
       <span id="sb-page" data-tip="Approximate page, based on a letter-size page">Page 1 of 1</span>
       <button class="linklike" type="button" id="sb-words" data-tip="Word count details">0 words</button>
       <span id="autosave-status" class="muted"></span>
+      <button class="linklike" type="button" id="filesave-status" data-tip="When you last saved your submission file"></button>
+      <span id="due-status"></span>
       <span class="spacer"></span>
       <span id="policy-note" class="muted"></span>
       <div class="sb-group" role="group" aria-label="Layout">
@@ -168,6 +187,13 @@
           <textarea id="dlg-notes" rows="3" placeholder="e.g. Drafted on paper first"></textarea>
         </div>
         <label class="check" data-tip="Adds a note to your file that you used dictation."><input type="checkbox" id="dlg-dictation"> <span>I’m using dictation</span></label>
+        <fieldset class="ai-use hidden" id="ai-fieldset">
+          <legend data-tip="Your instructor asks everyone this. Answer honestly; it’s shown with your work.">Did you use AI tools for this assignment?</legend>
+          <select id="ai-used" aria-label="AI use">
+            <option value="">Choose one…</option>
+          </select>
+          <textarea id="ai-detail" rows="2" placeholder="Which tool, and how? (optional)" aria-label="Details of AI use"></textarea>
+        </fieldset>
         <div>
           <label for="dlg-outline" data-tip="Only the file name and a fingerprint are kept, as a record that it existed. The file itself isn’t stored or sent.">Attach an outline or notes <span class="hint">(photo or PDF)</span></label>
           <input type="file" id="dlg-outline" accept="image/*,.pdf">
@@ -175,6 +201,23 @@
         </div>
       </div>
       <div class="dlg-foot"><button class="btn primary" value="ok">Done</button></div>
+    </form>
+  </dialog>
+
+  <!-- Receipt -->
+  <dialog id="receipt-dlg">
+    <form method="dialog">
+      <div class="dlg-body stack">
+        <h2>File saved</h2>
+        <p id="receipt-name" class="muted" style="margin:0"></p>
+        <p style="margin:0">Upload this file to your course. Keep this receipt: it identifies exactly this file, so you can show which version you submitted.</p>
+        <div class="receipt" id="receipt-code" data-tip="A fingerprint (SHA-256) of the file. Your instructor sees the same code when they open it."></div>
+        <p class="small muted" id="receipt-meta" style="margin:0"></p>
+      </div>
+      <div class="dlg-foot">
+        <button class="btn" type="button" id="receipt-copy">Copy receipt</button>
+        <button class="btn primary" value="ok">Done</button>
+      </div>
     </form>
   </dialog>
 

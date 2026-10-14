@@ -1,6 +1,6 @@
 // Showing, printing and downloading a finished document.
 import { h, download } from './dom.js';
-import { docHtml, docStyleCss, toDocx, toPlainText } from '../core/export.js';
+import { docHtml, docStyleCss, docStyle, toDocx, toPlainText } from '../core/export.js';
 
 const slug = (s) => String(s || 'document').replace(/[\\/:*?"<>|]+/g, '').trim().slice(0, 80) || 'document';
 
@@ -21,13 +21,19 @@ export function documentPage(doc, style) {
 
 // Prints only the document, in a hidden frame that uses the app's stylesheet.
 export function printDoc(doc, style, title) {
+  const numbers = docStyle(style).pageNumbers ? '<style>@page { @bottom-center { content: counter(page); font: 10pt serif; } }</style>' : '';
+  printHtml(`<div class="sheet print-sheet" style="${docStyleCss(style).replace(/"/g, '&quot;')}"><div class="doc">${docHtml(doc)}</div></div>`, title, 'print-body', numbers);
+}
+
+// Prints an HTML fragment in a hidden frame styled by the app's stylesheet (light theme).
+export function printHtml(bodyHtml, title, bodyClass = 'print-body', extraHead = '') {
   const frame = h('iframe', { class: 'print-frame', title: 'Print', 'aria-hidden': 'true' });
   document.body.append(frame);
   const css = new URL('css/app.css', document.baseURI).href;
   const fdoc = frame.contentDocument;
   fdoc.open();
   fdoc.write(`<!doctype html><html data-theme="light"><head><meta charset="utf-8"><title>${title.replace(/</g, '&lt;')}</title>
-<link rel="stylesheet" href="${css}"></head><body class="print-body"><div class="sheet print-sheet" style="${docStyleCss(style).replace(/"/g, '&quot;')}"><div class="doc">${docHtml(doc)}</div></div></body></html>`);
+<link rel="stylesheet" href="${css}">${extraHead}</head><body class="${bodyClass}">${bodyHtml}</body></html>`);
   fdoc.close();
   const go = () => {
     frame.contentWindow.focus();

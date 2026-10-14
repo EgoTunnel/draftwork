@@ -18,6 +18,8 @@ const OID = {
   p384: '1.3.132.0.34',
   p521: '1.3.132.0.35',
   commonName: '2.5.4.3',
+  extKeyUsage: '2.5.29.37',
+  timeStamping: '1.3.6.1.5.5.7.3.8',
 };
 
 const HASH_BY_OID = {
@@ -80,6 +82,15 @@ export async function requestStamp(url, hashHex, { timeoutMs = 15000 } = {}) {
   return toBase64(A.raw(token));
 }
 
+// Which kind of timestamping the relay at `url` provides ({ mode: 'relay' | 'mock', services }).
+export async function relayInfo(url) {
+  try {
+    const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(4000) });
+    if (res.ok) return await res.json();
+  } catch { /* unknown */ }
+  return null;
+}
+
 // Accepts a TimeStampResp and returns the token node.
 export function extractToken(bytes) {
   const resp = A.parse(bytes);
@@ -133,7 +144,44 @@ function parseCert(certNode) {
   const serial = A.readUInt(tbs.children[i]);
   const subject = tbs.children[i + 4];
   const spki = tbs.children[i + 5];
-  return { serial, cn: nameCN(subject), spki: A.raw(spki), spkiNode: spki };
+  const issuer = tbs.children[i + 2];
+  const validity = tbs.children[i + 3];
+  // Extended key usages, from extensions [3] if present.
+  const eku = [];
+  const extWrap = tbs.children.find((c) => c.tag === 0xa3);
+  if (extWrap) {
+    for (const ext of extWrap.children[0].children) {
+      if (A.readOid(ext.children[0]) !== OID.extKeyUsage) continue;
+      const val = A.parse(A.content(ext.children[ext.children.length - 1]));
+      for (const o of val.children) eku.push(A.readOid(o));
+    }
+  }
+  return {
+    serial, cn: nameCN(subject), issuerCn: nameCN(issuer), subjectDer: A.raw(subject), issuerDer: A.raw(issuer),
+    spki: A.raw(spki), spkiNode: spki, der: A.raw(certNode),
+    notBefore: A.readTime(validity.children[0]), notAfter: A.readTime(validity.children[1]), eku,
+    tbs: A.raw(tbs), sigAlg: A.readOid(certNode.children[1].children[0]), sig: A.content(certNode.children[2]).subarray(1),
+  };
+}
+
+// Walks from the signer up through the token's certificates, verifying each signature,
+// until it reaches a pinned public key. Returns the anchor, or throws with the reason.
+async function chainToAnchor(signer, certs, anchors) {
+  const pinned = new Map(anchors.map((a) => [a.spki, a]));
+  let cert = signer;
+  for (let depth = 0; depth < 6; depth++) {
+    const spkiHash = hex(await digest('SHA-256', cert.spki));
+    if (pinned.has(spkiHash)) return pinned.get(spkiHash);
+    const issuer = certs.find((c) => c !== cert && bytesEqual(c.subjectDer, cert.issuerDer));
+    if (!issuer) break;
+    let good = false;
+    try {
+      good = await verifySignature(issuer, cert.sigAlg, 'SHA-256', cert.tbs, cert.sig);
+    } catch { /* unsupported algorithm */ }
+    if (!good) throw new Error(`the certificate for ${cert.cn} is not validly signed by ${issuer.cn}`);
+    cert = issuer;
+  }
+  throw new Error(`signed by “${signer.cn}”, which is not an approved timestamp service`);
 }
 
 function ecdsaDerToRaw(der, size) {
@@ -165,10 +213,11 @@ async function verifySignature(cert, sigAlgOid, digestHash, data, signature) {
 }
 
 // Verifies a base64 token against the expected SHA-256 hex digest.
-// Checks the message imprint, the CMS messageDigest attribute and the signature with
-// the certificate embedded in the token. It does not chain the certificate to a root.
-export async function verifyToken(tokenB64, expectedHashHex) {
-  const result = { ok: false, errors: [], genTime: null, signer: '', demo: false };
+// Checks the message imprint, the CMS messageDigest attribute and the signature. With `anchors`,
+// it also requires the signer to be a time-stamping certificate, valid at the stamp time, that
+// chains to a pinned key; `allowDemo` accepts the demo TSA instead (marked `demo`).
+export async function verifyToken(tokenB64, expectedHashHex, { anchors = null, allowDemo = false } = {}) {
+  const result = { ok: false, errors: [], genTime: null, signer: '', demo: false, trusted: false, anchor: null };
   try {
     const token = extractToken(fromBase64(tokenB64));
     const tst = parseTstInfo(token);
@@ -205,15 +254,44 @@ export async function verifyToken(tokenB64, expectedHashHex) {
       signedBytes[0] = 0x31; // re-tag [0] IMPLICIT as SET OF for verification
     }
 
-    let cert = certs[0];
+    // The signer is named by issuer and serial number, or by key identifier; try candidates in order.
+    let candidates = certs;
     if (sid.tag === A.TAG.SEQUENCE) {
       const serial = A.readUInt(sid.children[1]);
-      cert = certs.find((c) => bytesEqual(c.serial, serial)) || cert;
+      const match = certs.filter((c) => bytesEqual(c.serial, serial));
+      if (match.length) candidates = match;
     }
-    result.signer = cert.cn;
-    result.demo = cert.cn === DEMO_TSA_NAME;
-    const good = await verifySignature(cert, sigAlgOid, digestAlg, signedBytes, signature);
-    if (!good) result.errors.push('TSA signature does not verify');
+    let cert = null;
+    for (const c of candidates) {
+      try {
+        if (await verifySignature(c, sigAlgOid, digestAlg, signedBytes, signature)) {
+          cert = c;
+          break;
+        }
+      } catch { /* try the next */ }
+    }
+    if (!cert) {
+      result.signer = candidates[0].cn;
+      result.errors.push('TSA signature does not verify');
+    } else {
+      result.signer = cert.cn;
+      result.fingerprint = hex(await digest('SHA-256', cert.der));
+      result.demo = cert.cn === DEMO_TSA_NAME;
+      if (anchors) {
+        if (result.demo) {
+          if (!allowDemo) result.errors.push('signed by the demo timestamp service, which this assignment does not accept');
+        } else {
+          if (!cert.eku.includes(OID.timeStamping)) result.errors.push(`“${cert.cn}” is not a time-stamping certificate`);
+          if (tst.genTime < cert.notBefore || tst.genTime > cert.notAfter) result.errors.push(`“${cert.cn}” was not valid at the stamp time`);
+          try {
+            result.anchor = (await chainToAnchor(cert, certs, anchors)).name;
+            result.trusted = true;
+          } catch (e) {
+            result.errors.push(e.message);
+          }
+        }
+      }
+    }
   } catch (e) {
     result.errors.push(e.message || String(e));
   }

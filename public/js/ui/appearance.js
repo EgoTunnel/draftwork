@@ -4,7 +4,7 @@ import { h } from './dom.js';
 import { popover } from './menu.js';
 
 const KEY = 'draftwork.appearance';
-export const THEMES = { system: 'System', light: 'Light', dark: 'Dark', sepia: 'Sepia' };
+export const THEMES = { system: 'System', light: 'Light', dark: 'Dark', sepia: 'Sepia', contrast: 'High contrast' };
 export const SIZES = { small: 'Small', normal: 'Default', large: 'Large' };
 
 export function getAppearance() {

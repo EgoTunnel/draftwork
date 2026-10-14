@@ -1,8 +1,12 @@
-import { $, $$, h, toast, copyText, LOGO } from './ui/dom.js';
+import { $, $$, h, toast, copyText, download, LOGO } from './ui/dom.js';
+import { popover, closePopover } from './ui/menu.js';
 import {
   newConfig, configHash, encodeConfig, decodeConfig, parseFile, DEFAULT_THRESHOLDS, THRESHOLD_LABELS, countWords,
 } from './core/format.js';
 import { analyzeFile, finalize, fmtDuration } from './core/analysis.js';
+import { relayInfo } from './core/tsa.js';
+import { sha256Hex } from './core/canon.js';
+import { isZip, readZip, lmsName, namesMatch } from './core/zipread.js';
 import { renderReport } from './ui/report.js';
 import { initTooltips } from './ui/tooltip.js';
 import { appearanceButton } from './ui/appearance.js';
@@ -61,6 +65,9 @@ function renderLibrary() {
       c.policy.sources_pane ? 'sources panel' : null,
       c.policy.words_min || c.policy.words_max ? `${c.policy.words_min || 0}–${c.policy.words_max || '∞'} words` : null,
       Object.keys(c.thresholds || {}).length ? 'custom thresholds' : null,
+      c.due ? `due ${new Date(c.due).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}` : null,
+      c.ai_disclosure ? 'AI disclosure' : null,
+      c.allow_demo_tsa ? 'test assignment' : null,
     ].filter(Boolean).join(' · ');
     box.append(h('div', { class: 'assign-row' },
       h('div', { class: 'row' },
@@ -95,6 +102,16 @@ $('#new-form').addEventListener('submit', async (ev) => {
     const val = Number($(`#th-${k}`).value);
     if (Number.isFinite(val) && val !== v) thresholds[k] = val;
   }
+  const tsaAnchors = [];
+  for (const line of $('#f-anchors').value.split('\n').map((l) => l.trim()).filter(Boolean)) {
+    const m = line.match(/^(.*?)[,\s]+([0-9a-fA-F]{64})$/);
+    if (!m) {
+      toast(`Couldn’t read “${line}”. Use: name, 64-character fingerprint.`, 6000);
+      return;
+    }
+    tsaAnchors.push({ name: m[1].trim() || 'Custom TSA', spki: m[2].toLowerCase() });
+  }
+  const dueVal = $('#f-due').value;
   const config = newConfig({
     title: $('#f-title').value,
     paste: $('#f-paste').value,
@@ -103,14 +120,29 @@ $('#new-form').addEventListener('submit', async (ev) => {
     wordsMax: $('#f-max').value,
     tsaUrl: $('#f-tsa').value.trim() || '/tsa',
     thresholds,
+    allowDemoTsa: $('#f-demo').checked,
+    tsaAnchors,
+    due: dueVal ? new Date(dueVal).toISOString() : null,
+    aiDisclosure: $('#f-ai').checked,
   });
   await addToLibrary(config);
   renderLibrary();
   $('#new-form').reset();
   for (const [k, v] of Object.entries(DEFAULT_THRESHOLDS)) $(`#th-${k}`).value = v;
+  presetDemo();
   toast(`Created "${config.title}". Use Copy link to share it with students.`);
   reanalyze();
 });
+
+// When the server is running the offline demo timestamp service, new assignments must accept it.
+async function presetDemo() {
+  const info = await relayInfo(new URL($('#f-tsa').value.trim() || '/tsa', location.href).href);
+  if (info && info.mode === 'mock') {
+    $('#f-demo').checked = true;
+    $('#f-demo').closest('label').dataset.tip = 'This server is running the offline demo timestamp service, so test assignments must accept demo timestamps.';
+  }
+}
+presetDemo();
 
 $('#import-btn').addEventListener('click', async () => {
   try {
@@ -143,28 +175,81 @@ let current = null;
 
 const normLabel = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
+// ---------- check-in notes (this browser only) ----------
+
+const NOTES_KEY = 'draftwork.notes';
+function allNotes() {
+  try {
+    return JSON.parse(localStorage.getItem(NOTES_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+const getNotes = (key) => allNotes()[key] || {};
+function setNotes(key, n) {
+  const all = allNotes();
+  all[key] = n;
+  try {
+    localStorage.setItem(NOTES_KEY, JSON.stringify(all));
+  } catch {
+    toast('Could not save your notes in this browser.');
+  }
+}
+
+// "3 of 4 asked · 1 follow-up" for the table.
+function checkinStatus(item, F) {
+  const n = getNotes(item.key);
+  const outcomes = F.prompts.map((p) => (n.prompts && n.prompts[p.i] && n.prompts[p.i].outcome) || '');
+  const asked = outcomes.filter(Boolean).length;
+  const follow = outcomes.filter((o) => o === 'follow').length + Object.values(n.flags || {}).filter((d) => d === 'concern').length;
+  return { asked, total: F.prompts.length, follow, any: asked > 0 || !!n.summary };
+}
+
+let filter = 'all';
+const FILTERS = {
+  all: ['All', () => true],
+  flagged: ['Flagged', (F) => F.flags.length > 0],
+  integrity: ['Integrity failed', (F) => F.integrity.some((c) => c.status === 'fail')],
+  todo: ['Not checked in', (F, s) => !s.any],
+  follow: ['Follow-up', (F, s) => s.follow > 0],
+};
+
 async function addFiles(entries) {
   const status = $('#load-status');
-  let ok = 0;
   const errors = [];
-  for (let k = 0; k < entries.length; k++) {
-    const { name, bytes } = entries[k];
-    status.textContent = `Checking ${k + 1} of ${entries.length}: ${name}…`;
+  // Expand LMS zips; keep only .draftwork files from inside them.
+  const files = [];
+  for (const e of entries) {
+    if (isZip(e.bytes)) {
+      status.textContent = `Opening ${e.name}…`;
+      try {
+        const inner = (await readZip(e.bytes)).filter((x) => /\.draftwork$/i.test(x.name));
+        if (!inner.length) errors.push(`${e.name}: no .draftwork files inside`);
+        files.push(...inner);
+      } catch (err) {
+        errors.push(`${e.name}: ${err.message}`);
+      }
+    } else files.push(e);
+  }
+  for (let k = 0; k < files.length; k++) {
+    const { name, bytes } = files[k];
+    status.textContent = `Checking ${k + 1} of ${files.length}…`;
     try {
       const file = await parseFile(bytes);
       const key = `${file.assignment.config_hash}:${normLabel(file.header.student_label)}:${file.final.hash}:${file.events.length}`;
       if (loaded.some((x) => x.key === key)) continue;
       const A = await analyzeFile(file, { knownConfigHashes: knownHashes() });
-      loaded.push({ key, name, A });
-      ok++;
+      const fingerprint = await sha256Hex(bytes);
+      const shortName = name.split('/').pop();
+      loaded.push({ key, name: shortName, path: name, A, fingerprint, lms: lmsName(name) });
     } catch (err) {
-      errors.push(`${name}: ${err.message}`);
+      errors.push(`${name.split('/').pop()}: ${err.message}`);
     }
   }
-  status.textContent = `${loaded.length} file${loaded.length === 1 ? '' : 's'} loaded.` + (errors.length ? ` ${errors.length} could not be read.` : '');
+  status.textContent = `${loaded.length} file${loaded.length === 1 ? '' : 's'} open.` + (errors.length ? ` ${errors.length} could not be read.` : '');
   if (errors.length) toast(errors.slice(0, 3).join(' · '), 8000);
   $('#clear-files').classList.toggle('hidden', !loaded.length);
-  void ok;
+  $('#export-csv').classList.toggle('hidden', !loaded.length);
   renderGroups();
 }
 
@@ -197,22 +282,40 @@ function renderGroups() {
   const box = $('#groups');
   box.innerHTML = '';
   const known = knownHashes();
+  if (loaded.length) {
+    box.append(h('div', { class: 'row filters', role: 'group', 'aria-label': 'Show' },
+      h('span', { class: 'small muted' }, 'Show:'),
+      Object.entries(FILTERS).map(([k, [label]]) => h('button', {
+        class: 'chip', type: 'button', 'aria-pressed': String(filter === k),
+        onclick: () => {
+          filter = k;
+          renderGroups();
+        },
+      }, label))));
+  }
   for (const [hash, items] of groupsOf()) {
     const cfg = items[0].A.config;
     const min = items[0].A.T.min_class_size;
-    const rows = items.map((item) => {
-      const F = finalized(item);
+    const shown = items.map((item) => ({ item, F: finalized(item) }))
+      .map((x) => ({ ...x, s: checkinStatus(x.item, x.F) }))
+      .filter((x) => FILTERS[filter][1](x.F, x.s));
+    const rows = shown.map(({ item, F, s }) => {
       const fails = F.integrity.filter((c) => c.status === 'fail').length;
       const warns = F.integrity.filter((c) => c.status !== 'pass' && c.status !== 'fail').length;
       const integrityTip = F.integrity.filter((c) => c.status !== 'pass').map((c) => `${c.label}: ${c.detail}`).join('\n') || 'All integrity checks passed';
+      const lmsMismatch = item.lms && item.lms.name && !namesMatch(item.lms.name, F.header.student_label);
       return h('tr', { class: 'clickable', tabindex: '0', onclick: () => openDetail(item, 'overview'), onkeydown: (e) => e.key === 'Enter' && openDetail(item, 'overview') },
-        h('td', null, h('strong', null, F.header.student_label || '(no label)'), h('div', { class: 'small muted' }, item.name)),
+        h('td', null, h('strong', null, F.header.student_label || '(no label)'),
+          h('div', { class: `small ${lmsMismatch ? 'warn-text' : 'muted'}`, 'data-tip': lmsMismatch ? `The LMS says this was submitted by “${item.lms.name}”, which doesn’t obviously match the name in the file.` : null },
+            item.lms && item.lms.name ? `${item.lms.lms}: ${item.lms.name}` : item.name)),
         h('td', null, countWords(F.file.final.text).toLocaleString()),
         h('td', null, F.sessions.length),
         h('td', null, fmtDuration(F.raw.active)),
         h('td', null, h('span', { 'data-tip': integrityTip },
           fails ? h('span', { class: 'pill bad' }, `${fails} failed`) : warns ? h('span', { class: 'pill warn' }, 'Passed*') : h('span', { class: 'pill ok' }, 'Passed'))),
         h('td', null, F.flags.length ? h('div', { class: 'chips' }, [...new Set(F.flags.map((f) => f.title))].map((t) => h('span', { class: `pill ${t === 'Integrity failure' ? 'bad' : 'warn'}` }, t))) : h('span', { class: 'muted small' }, '—')),
+        h('td', { class: 'small' }, s.total ? h('span', { class: s.follow ? 'warn-text' : s.asked ? '' : 'muted' },
+          s.follow ? `Follow-up (${s.follow})` : s.asked ? `${s.asked} of ${s.total} asked` : 'Not yet') : '—'),
         h('td', { class: 'row-actions' }, h('button', {
           class: 'btn small', type: 'button', 'data-tip': 'Read the submitted document', html: `${ICONS.doc}<span>Read</span>`,
           onclick: (e) => {
@@ -238,8 +341,9 @@ function renderGroups() {
           h('th', { 'data-tip': 'Writing time, not counting breaks over 5 minutes' }, 'Time'),
           h('th', { 'data-tip': 'Whether the file is intact and was written in Draftwork' }, 'Integrity'),
           h('th', { 'data-tip': 'Moments worth asking about' }, 'Flags'),
+          h('th', { 'data-tip': 'Your check-in progress, from the notes you record under “Questions to ask”' }, 'Check-in'),
           h('th', null, ''))),
-        h('tbody', null, rows)))));
+        h('tbody', null, rows.length ? rows : h('tr', null, h('td', { colspan: 8, class: 'muted small' }, 'No submissions match this filter.')))))));
   }
 }
 
@@ -249,7 +353,11 @@ function openDetail(item, tab = currentTab) {
   currentTab = tab;
   $('#review-list').classList.add('hidden');
   $('#review-detail').classList.remove('hidden');
-  renderReport($('#report'), finalized(item), { mode: 'instructor', tab, onTab: (t) => (currentTab = t) });
+  renderReport($('#report'), finalized(item), {
+    mode: 'instructor', tab, onTab: (t) => (currentTab = t),
+    notes: { get: () => getNotes(item.key), set: (n) => setNotes(item.key, n) },
+    fileInfo: { fingerprint: item.fingerprint, lms: item.lms },
+  });
   const group = groupsOf().get(item.A.cfgHash);
   const k = group.indexOf(item);
   $('#prev').disabled = k <= 0;
@@ -268,6 +376,59 @@ $('#back').addEventListener('click', () => {
   $('#review-detail').classList.add('hidden');
   $('#review-list').classList.remove('hidden');
   $('#report').innerHTML = '';
+  renderGroups();
+});
+
+// ---------- export (spreadsheet, optionally anonymised for calibration) ----------
+
+function csvCell(v) {
+  const s = v == null ? '' : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+async function exportCsv(anonymous) {
+  const rows = [];
+  const flagIds = ['gap', 'untrusted', 'unusual', 'retype', 'transcription', 'away', 'fast', 'rhythm', 'overlap'];
+  for (const [, items] of groupsOf()) {
+    for (const item of items) {
+      const F = finalized(item);
+      const n = getNotes(item.key);
+      const s = checkinStatus(item, F);
+      const id = anonymous ? (await sha256Hex(`${item.key}`)).slice(0, 10) : F.header.student_label;
+      const row = {
+        id, assignment: F.config.title,
+        lms_name: anonymous ? '' : (item.lms && item.lms.name) || '',
+        file_fingerprint: anonymous ? '' : item.fingerprint,
+        words: countWords(F.file.final.text), sessions: F.sessions.length, active_min: (F.raw.active / 60_000).toFixed(1),
+      };
+      for (const c of F.integrity) row[`check_${c.id}`] = c.status;
+      for (const f of flagIds) {
+        const has = F.flags.some((x) => x.id === f);
+        row[`flag_${f}`] = has ? 1 : 0;
+        row[`review_${f}`] = has ? (n.flags && n.flags[f]) || '' : '';
+      }
+      for (const sg of F.signals) row[`signal_${sg.id}`] = Number.isFinite(sg.metric) ? Number(sg.metric.toFixed(4)) : '';
+      row.questions_asked = s.asked;
+      row.questions_total = s.total;
+      row.outcomes = F.prompts.map((p) => (n.prompts && n.prompts[p.i] && n.prompts[p.i].outcome) || '-').join(' ');
+      if (!anonymous) row.notes = n.summary || '';
+      rows.push(row);
+    }
+  }
+  if (!rows.length) return;
+  const cols = Object.keys(rows[0]);
+  const csv = [cols.join(','), ...rows.map((r) => cols.map((c) => csvCell(r[c])).join(','))].join('\r\n');
+  download(new TextEncoder().encode('﻿' + csv), anonymous ? 'draftwork-calibration.csv' : 'draftwork-submissions.csv', 'text/csv');
+}
+
+$('#export-csv').addEventListener('click', (e) => {
+  popover(e.currentTarget, h('div', { class: 'menu' },
+    h('button', { class: 'menu-item', type: 'button', onclick: () => { closePopover(); exportCsv(false); } },
+      h('span'), h('span', { class: 'menu-label' }, 'Spreadsheet with names'), h('span')),
+    h('button', {
+      class: 'menu-item', type: 'button', 'data-tip': 'Names, file fingerprints and your notes are left out; students get random IDs. Suitable for sharing to calibrate flag thresholds.',
+      onclick: () => { closePopover(); exportCsv(true); },
+    }, h('span'), h('span', { class: 'menu-label' }, 'Anonymised, for calibration'), h('span'))), { align: 'left' });
 });
 
 $('#clear-files').addEventListener('click', () => {
@@ -275,6 +436,7 @@ $('#clear-files').addEventListener('click', () => {
   renderGroups();
   $('#load-status').textContent = '';
   $('#clear-files').classList.add('hidden');
+  $('#export-csv').classList.add('hidden');
 });
 
 const readEntries = (files) => Promise.all([...files].map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })));

@@ -33,6 +33,7 @@ export const DEFAULT_THRESHOLDS = {
   rhythm_z: 2.5,
   min_class_size: 15,
   long_pause_s: 2,
+  overlap_words: 30,
 };
 
 export const THRESHOLD_LABELS = {
@@ -53,10 +54,14 @@ export const THRESHOLD_LABELS = {
   rhythm_z: 'Machine-regular rhythm: standard deviations below the class',
   min_class_size: 'Class-relative flags: minimum class size',
   long_pause_s: 'Long pause (seconds)',
+  overlap_words: 'Shared passage: words in a row that also appear in another submission',
 };
 
-export function newConfig({ title, paste = 'block', sourcesPane = true, wordsMin = null, wordsMax = null, tsaUrl = '/tsa', thresholds = {} }) {
-  return {
+export function newConfig({
+  title, paste = 'block', sourcesPane = true, wordsMin = null, wordsMax = null, tsaUrl = '/tsa', thresholds = {},
+  allowDemoTsa = false, tsaAnchors = [], due = null, aiDisclosure = false,
+}) {
+  const config = {
     v: 1,
     title: String(title || 'Untitled assignment').trim(),
     nonce: randomHex(16),
@@ -70,6 +75,12 @@ export function newConfig({ title, paste = 'block', sourcesPane = true, wordsMin
     tsa_url: tsaUrl,
     thresholds,
   };
+  // Optional fields are only present when used, so older configs keep their hashes.
+  if (allowDemoTsa) config.allow_demo_tsa = true;
+  if (tsaAnchors.length) config.tsa_anchors = tsaAnchors;
+  if (due) config.due = due;
+  if (aiDisclosure) config.ai_disclosure = true;
+  return config;
 }
 
 export const thresholdsFor = (config) => ({ ...DEFAULT_THRESHOLDS, ...((config && config.thresholds) || {}) });

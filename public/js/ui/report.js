@@ -5,8 +5,61 @@ import { productionGraph, indexAtClock } from './graph.js';
 import { stateAt, fmtClock, fmtDuration, POLICY_FOOTER } from '../core/analysis.js';
 import { countWords, finalDoc } from '../core/format.js';
 import { paragraphParts, docStyleCss, toPlainText, toClipboardHtml } from '../core/export.js';
-import { documentPage, downloadDocx, downloadTxt, printDoc } from './docui.js';
+import { documentPage, downloadDocx, downloadTxt, printDoc, printHtml } from './docui.js';
 import { ICONS } from './icons.js';
+import { fingerprintCode } from '../core/canon.js';
+import { namesMatch } from '../core/zipread.js';
+
+export const OUTCOMES = { '': 'Not asked yet', ok: 'Explained convincingly', unclear: 'Answer unclear', follow: 'Needs follow-up' };
+export const DISPOSITIONS = { '': 'Not reviewed', benign: 'Benign after check-in', concern: 'Concern remains' };
+export const AI_USE = {
+  none: 'No AI tools', ideas: 'For ideas or brainstorming', feedback: 'For feedback on my writing',
+  editing: 'For grammar or wording fixes', drafting: 'To draft some of the text', other: 'Other',
+};
+
+const escHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function debounce(fn, ms) {
+  let t = null;
+  return (...a) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...a), ms);
+  };
+}
+
+// A one-page record of the review: checks, flags (with review status), questions and answers.
+function printSummary(F, notes, fileInfo) {
+  const n = notes || { prompts: {}, flags: {}, summary: '' };
+  const header = F.header;
+  const rows = [];
+  rows.push(`<h1>${escHtml(header.student_label || 'Unnamed')}</h1>`);
+  rows.push(`<p class="muted">${escHtml(F.config.title)} · ${countWords(F.file.final.text)} words · ${fmtDuration(F.raw.active)} writing · ${F.sessions.length} session(s)` +
+    `${fileInfo && fileInfo.fingerprint ? ` · file ${fingerprintCode(fileInfo.fingerprint)}` : ''} · reviewed ${new Date().toLocaleDateString()}</p>`);
+  if (header.process_notes) rows.push(`<p><strong>Student’s notes:</strong> ${escHtml(header.process_notes)}</p>`);
+  if (header.ai_use) rows.push(`<p><strong>AI use:</strong> ${escHtml(AI_USE[header.ai_use.used] || header.ai_use.used)}${header.ai_use.detail ? ` — ${escHtml(header.ai_use.detail)}` : ''}</p>`);
+  rows.push('<h2>Integrity</h2><ul>');
+  for (const c of F.integrity) rows.push(`<li>${{ pass: '✓', fail: '✕', warn: '!', unknown: '?' }[c.status]} ${escHtml(c.label)} — ${escHtml(c.detail)}</li>`);
+  rows.push('</ul><h2>Flags</h2>');
+  if (!F.flags.length) rows.push('<p>None.</p>');
+  else {
+    rows.push('<ul>');
+    for (const f of F.flags) {
+      const d = n.flags[f.id];
+      const resp = (header.flag_notes || {})[f.id];
+      rows.push(`<li><strong>${escHtml(f.title)}</strong>: ${escHtml(f.reason)}${d ? ` <em>[${DISPOSITIONS[d]}]</em>` : ''}${resp ? `<br>Student’s response: “${escHtml(resp)}”` : ''}</li>`);
+    }
+    rows.push('</ul>');
+  }
+  rows.push('<h2>Check-in</h2><ol>');
+  for (const p of F.prompts) {
+    const a = n.prompts[p.i] || {};
+    rows.push(`<li><p>${escHtml(p.question)}</p>${a.outcome ? `<p><em>${OUTCOMES[a.outcome]}</em></p>` : ''}${a.answer ? `<p>Answer: ${escHtml(a.answer)}</p>` : ''}</li>`);
+  }
+  rows.push('</ol>');
+  if (n.summary) rows.push(`<h2>Notes</h2><p>${escHtml(n.summary).replace(/\n/g, '<br>')}</p>`);
+  rows.push(`<p class="muted small">${POLICY_FOOTER}</p>`);
+  printHtml(`<div class="print-summary">${rows.join('')}</div>`, `Review - ${header.student_label || 'submission'}`);
+}
 
 const STATUS_MARK = { pass: '✓', fail: '✕', warn: '!', unknown: '?' };
 const STATUS_TEXT = { pass: 'Passed', fail: 'Failed', warn: 'Passed, with a note', unknown: 'Could not check' };
@@ -75,8 +128,12 @@ async function copyDoc(doc) {
   }
 }
 
-export function renderReport(root, F, { mode = 'instructor', tab = 'overview', onTab = null } = {}) {
+// opts.notes: { get(), set(notes) } for the instructor's check-in notes (this browser only).
+// opts.fileInfo: { fingerprint, lms: { lms, name } }. opts.onFlagNote(id, text): the student's own responses.
+export function renderReport(root, F, { mode = 'instructor', tab = 'overview', onTab = null, notes = null, fileInfo = null, onFlagNote = null } = {}) {
   root.innerHTML = '';
+  const N0 = notes ? { prompts: {}, flags: {}, summary: '', ...notes.get() } : null;
+  const saveNotes = debounce(() => notes && notes.set({ ...N0, updated: new Date().toISOString() }), 400);
   const N = F.events.length;
   const tl = F.tl;
   const words = countWords(F.file.final.text);
@@ -99,7 +156,23 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
       h('span', { 'data-tip': 'Each time the student opened the document to write' }, `${F.sessions.length} session${F.sessions.length === 1 ? '' : 's'}${F.sessions.length > 1 ? ` over ${fmtDuration(elapsed)}` : ''}`),
       F.sessions[0] && h('span', null, new Date(F.sessions[0].wall).toLocaleDateString(undefined, { dateStyle: 'medium' })),
       header.dictation_mode && h('span', { class: 'pill accent', 'data-tip': 'The student said they used dictation' }, 'Dictation'),
+      F.config.due && (() => {
+        const last = N ? tl.abs[N - 1] : 0;
+        const late = last > Date.parse(F.config.due);
+        return h('span', { class: `pill ${late ? 'warn' : ''}`, 'data-tip': `Due ${new Date(F.config.due).toLocaleString()}. Last edit ${new Date(last).toLocaleString()}.` }, late ? 'Edited after due date' : 'Finished before due date');
+      })(),
+      fileInfo && fileInfo.fingerprint && h('span', { class: 'mono small', 'data-tip': 'Fingerprint of this file. It matches the receipt the student got when they saved it.' }, fingerprintCode(fileInfo.fingerprint)),
+      fileInfo && fileInfo.lms && fileInfo.lms.name && h('span', {
+        class: namesMatch(fileInfo.lms.name, header.student_label) ? 'small' : 'small warn-text',
+        'data-tip': namesMatch(fileInfo.lms.name, header.student_label)
+          ? `Submitted in ${fileInfo.lms.lms} as “${fileInfo.lms.name}”`
+          : `Submitted in ${fileInfo.lms.lms} as “${fileInfo.lms.name}”, which doesn’t obviously match the name in the file. Check it was the student’s own file.`,
+      }, `${fileInfo.lms.lms}: ${fileInfo.lms.name}`),
     ),
+    header.ai_use && h('div', { class: 'rp-notes' },
+      h('div', { class: 'eyebrow' }, 'AI use (student’s disclosure)'),
+      h('div', null, AI_USE[header.ai_use.used] || header.ai_use.used, header.ai_use.detail ? h('span', { class: 'muted' }, ` — ${header.ai_use.detail}`) : null)),
+    F.config.ai_disclosure && !header.ai_use && h('div', { class: 'small warn-text', style: 'margin-top:8px' }, 'The student did not complete the AI-use disclosure.'),
     (header.process_notes || (header.attachments || []).length > 0) && h('div', { class: 'rp-notes' },
       h('div', { class: 'eyebrow' }, 'Student’s notes'),
       header.process_notes && h('div', null, header.process_notes),
@@ -132,7 +205,11 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
   tabs.append(h('span', { class: 'spacer' }),
     h('span', { class: `pill ${failing ? 'bad' : F.integrity.some((c) => c.status !== 'pass') ? 'warn' : 'ok'}`, 'data-tip': 'Integrity checks passed' },
       failing ? `${failing} check${failing === 1 ? '' : 's'} failed` : `${passing}/${F.integrity.length} checks`),
-    h('span', { class: `pill ${F.flags.length ? 'warn' : ''}` }, `${F.flags.length} flag${F.flags.length === 1 ? '' : 's'}`));
+    h('span', { class: `pill ${F.flags.length ? 'warn' : ''}` }, `${F.flags.length} flag${F.flags.length === 1 ? '' : 's'}`),
+    N0 && h('button', {
+      class: 'btn small', type: 'button', 'data-tip': 'Print or save as PDF a one-page record: checks, flags with your review, questions and answers',
+      onclick: () => printSummary(F, N0, fileInfo), html: `${ICONS.print}<span>Print summary</span>`,
+    }));
 
   // ---------- overview: integrity ----------
   const l1 = h('section', { class: 'card', id: 'layer-integrity' },
@@ -155,6 +232,23 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
           h('summary', null, f.kind === 'integrity' ? 'Before concluding anything' : 'Possible innocent explanations'),
           h('ul', null, f.benign.map((b) => h('li', null, b)),
             f.kind === 'pattern' && header.process_notes ? h('li', null, h('em', null, `Student’s note: “${header.process_notes}”`)) : null)),
+        mode !== 'student' && (header.flag_notes || {})[f.id] && h('div', { class: 'student-response' },
+          h('div', { class: 'eyebrow' }, 'Student’s response'), h('div', null, header.flag_notes[f.id])),
+        mode === 'student' && onFlagNote && f.kind === 'pattern' && (() => {
+          const ta = h('textarea', { rows: 2, placeholder: 'Optional: explain this to your instructor, e.g. “I was reading my notes in another window.”', 'aria-label': `Your note about ${f.title}` });
+          ta.value = (header.flag_notes || {})[f.id] || '';
+          ta.addEventListener('input', debounce(() => onFlagNote(f.id, ta.value.trim()), 400));
+          return h('div', { class: 'student-response' }, h('label', { 'data-tip': 'Your instructor sees this next to the flag.' }, 'Your note about this'), ta);
+        })(),
+        N0 && f.kind === 'pattern' && (() => {
+          const sel = h('select', { 'aria-label': 'Review status', 'data-tip': 'Your conclusion after talking with the student. Kept in this browser and included in exports, to help calibrate flags.' },
+            Object.entries(DISPOSITIONS).map(([k, v]) => h('option', { value: k, selected: (N0.flags[f.id] || '') === k }, v)));
+          sel.addEventListener('change', () => {
+            N0.flags[f.id] = sel.value;
+            saveNotes();
+          });
+          return h('div', { class: 'row review-row' }, h('span', { class: 'small muted' }, 'Review:'), sel);
+        })(),
       ))
       : h('p', { class: 'empty-state' }, 'No flags.'),
     !F.classOn && h('p', { class: 'small muted', style: 'margin:10px 0 0', 'data-tip': 'The “too fast” and “machine-regular rhythm” flags compare against the class, so they need enough submissions.' },
@@ -201,8 +295,33 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
       ? h('ol', { class: 'prompts' }, F.prompts.map((p) => h('li', null,
         h('div', null, h('span', { class: `pill ${p.flagged ? 'warn' : 'accent'}` }, p.title)),
         h('div', { class: 'q' }, p.question),
-        moment(p.i, `Show at ${fmtClock(tl.clock[p.i])}`))))
+        moment(p.i, `Show at ${fmtClock(tl.clock[p.i])}`),
+        N0 && (() => {
+          const a = N0.prompts[p.i] || (N0.prompts[p.i] = { answer: '', outcome: '' });
+          const ta = h('textarea', { rows: 2, placeholder: 'What the student said', 'aria-label': 'Student’s answer' });
+          ta.value = a.answer || '';
+          ta.addEventListener('input', () => {
+            a.answer = ta.value;
+            saveNotes();
+          });
+          const sel = h('select', { 'aria-label': 'Outcome' }, Object.entries(OUTCOMES).map(([k, v]) => h('option', { value: k, selected: (a.outcome || '') === k }, v)));
+          sel.addEventListener('change', () => {
+            a.outcome = sel.value;
+            saveNotes();
+          });
+          return h('div', { class: 'checkin' }, ta, sel);
+        })())))
       : h('p', { class: 'empty-state' }, 'Not enough writing yet to suggest questions.'),
+    N0 && (() => {
+      const ta = h('textarea', { rows: 3, placeholder: 'Anything else from the check-in', 'aria-label': 'Check-in notes' });
+      ta.value = N0.summary || '';
+      ta.addEventListener('input', () => {
+        N0.summary = ta.value;
+        saveNotes();
+      });
+      return h('div', { style: 'margin-top:12px' },
+        h('label', { 'data-tip': 'Your notes are kept in this browser only. They’re included in Print summary and Export.' }, 'Check-in notes'), ta);
+    })(),
   );
 
   // ---------- overview: replay ----------

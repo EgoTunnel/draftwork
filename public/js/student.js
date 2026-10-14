@@ -1,13 +1,13 @@
 import { $, $$, h, toast, download, LOGO } from './ui/dom.js';
-import { sha256Hex, hex, sha256Bytes } from './core/canon.js';
+import { sha256Hex, hex, sha256Bytes, fingerprintCode } from './core/canon.js';
 import { decodeConfig, configHash, diffOp, parseFile, serializeFile, fileName, countWords } from './core/format.js';
 import { MARKS, STYLES, HEADING_STYLES } from './core/doc.js';
 import { FONTS, SIZES, LINE_SPACINGS, docStyle, docStyleCss } from './core/export.js';
 import { Recorder } from './core/recorder.js';
-import { requestStamp } from './core/tsa.js';
-import { getDraft, putDraft, deleteDraft } from './core/store.js';
+import { requestStamp, relayInfo } from './core/tsa.js';
+import { getDraft, putDraft, deleteDraft, addVersion, listVersions, getVersion } from './core/store.js';
 import { analyzeFile, finalize } from './core/analysis.js';
-import { renderReport } from './ui/report.js';
+import { renderReport, AI_USE } from './ui/report.js';
 import { Editor } from './ui/editor.js';
 import { ICONS } from './ui/icons.js';
 import { menuBar } from './ui/menu.js';
@@ -81,6 +81,10 @@ const isDesktop = () => !(matchMedia('(pointer: coarse)').matches && !matchMedia
 
 async function checkConnection() {
   if (!navigator.onLine) throw new Error('This computer is offline.');
+  const info = await relayInfo(new URL(config.tsa_url, location.href).href);
+  if (info && info.mode === 'mock' && !config.allow_demo_tsa) {
+    throw new Error('This Draftwork server is in test mode, so your work couldn’t be verified. Let your instructor know.');
+  }
   try {
     await requestStamp(config.tsa_url, await sha256Hex(`draftwork-connection-check:${config.nonce}:${Date.now()}`), { timeoutMs: 12_000 });
   } catch {
@@ -106,6 +110,7 @@ async function openAssignment(code) {
       p.paste === 'block' ? 'Pasting from other sources is off' : 'Pasting from other sources is allowed'),
     p.sources_pane && h('li', { 'data-tip': 'A side panel where you can paste quotes, then copy them into your writing.' }, 'Sources panel for quotes'),
     (p.words_min || p.words_max) && h('li', null, `${p.words_min || 0}–${p.words_max || 'any'} words`),
+    config.due && h('li', null, `Due ${new Date(config.due).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}`),
     h('li', { 'data-tip': 'Your work is timestamped as you go, so you need to stay connected.' }, 'Needs an internet connection'),
   );
   if (!isDesktop()) {
@@ -116,6 +121,11 @@ async function openAssignment(code) {
   try {
     saved = await getDraft(draftKey);
   } catch { /* storage unavailable */ }
+  renderVersions();
+  if (saved) {
+    lastFileSave = saved.lastFileSave || 0;
+    eventsAtFileSave = saved.eventsAtFileSave || 0;
+  }
   if (saved && saved.file) {
     const f = saved.file;
     $('#resume-info').textContent = `${f.header.student_label} · ${countWords(f.final.text)} words · saved ${new Date(saved.savedAt).toLocaleString()}`;
@@ -133,6 +143,35 @@ async function openAssignment(code) {
   $('#file-card').classList.remove('hidden');
 }
 
+async function renderVersions() {
+  let versions = [];
+  try {
+    versions = await listVersions(cfgHash);
+  } catch { /* storage unavailable */ }
+  const card = $('#versions-card');
+  card.classList.toggle('hidden', !versions.length);
+  const list = $('#versions-list');
+  list.innerHTML = '';
+  for (const v of versions) {
+    list.append(h('div', { class: 'row' },
+      h('span', null, new Date(v.savedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })),
+      h('span', { class: 'muted small' }, `${v.words.toLocaleString()} words`),
+      h('span', { class: 'spacer' }),
+      h('button', {
+        class: 'btn small', type: 'button', 'data-tip': 'Continue writing from this version. Your current draft is kept as another version.',
+        onclick: async () => {
+          if (!confirm('Continue from this earlier version? Everything written after it will not be part of your submission, though your current draft stays in this list.')) return;
+          try {
+            const cur = await getDraft(draftKey);
+            if (cur && cur.file) await addVersion(cfgHash, cur.file, countWords(cur.file.final.text));
+          } catch { /* best effort */ }
+          const file = await getVersion(v.key);
+          begin(() => Recorder.resume(file, recOpts()));
+        },
+      }, 'Restore')));
+  }
+}
+
 function recOpts() {
   return {
     stamper: (hashHex) => requestStamp(config.tsa_url, hashHex),
@@ -147,12 +186,30 @@ function recOpts() {
   };
 }
 
+// One tab per draft: two tabs writing the same draft would record conflicting sessions.
+let haveLock = false;
+function takeLock() {
+  if (haveLock || !navigator.locks) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    navigator.locks.request(`draftwork:${cfgHash}`, { ifAvailable: true }, (lock) => {
+      if (!lock) {
+        resolve(false);
+        return undefined;
+      }
+      haveLock = true;
+      resolve(true);
+      return new Promise(() => {}); // held until the page closes
+    });
+  });
+}
+
 async function begin(makeRecorder) {
   $('#refusal').classList.add('hidden');
   const status = $('#start-status');
   status.textContent = 'Connecting…';
   for (const b of $$('#screen-setup button')) b.disabled = true;
   try {
+    if (!(await takeLock())) throw new Error('This assignment is already open in another tab or window. Close it there, then try again.');
     await checkConnection();
     rec = await makeRecorder();
     for (const cp of rec.unstamped()) cpCreated.set(cp.c, Date.now());
@@ -179,6 +236,7 @@ $('#new-card').addEventListener('submit', (ev) => {
       process_notes: $('#notes-input').value.trim(),
       dictation_mode: $('#dictation-input').checked,
       attachments: [],
+      consent: { at: new Date().toISOString(), notice: 1 },
     },
   }));
 });
@@ -231,6 +289,11 @@ function startWriting() {
         ? 'Use Ctrl+V to paste.'
         : 'Pasting from other sources is off for this assignment. You can paste quotes into the Sources panel.', 5000),
       onUntrusted: () => toast('A browser extension or script tried to change your text. The change was undone.', 6000),
+      onAnnounce: (msg) => {
+        const live = $('#sr-status');
+        live.textContent = '';
+        setTimeout(() => (live.textContent = msg), 30);
+      },
       keys: { save: saveNow, print: printNow, find: () => openFind(false), replace: () => openFind(true) },
     });
     buildToolbar();
@@ -247,6 +310,8 @@ function startWriting() {
   editor.setSel(rec.text.length, rec.text.length);
   onDocChange();
   updateStampPill();
+  updateDue();
+  updateFileSaveStatus();
   saveDraft();
 }
 
@@ -356,6 +421,23 @@ function buildToolbar() {
     tb('nav', 'nav', 'Navigation pane: jump between headings', () => setPref('nav', !prefs.nav)),
     ...(config.policy.sources_pane ? [tb('sources', 'sources', 'Sources panel', () => setPref('sources', !prefs.sources))] : []),
   );
+  // One tab stop for the whole toolbar; arrow keys move between controls (WAI-ARIA toolbar pattern).
+  const items = () => [...bar.querySelectorAll('button, select')].filter((x) => !x.disabled);
+  const setStop = (el) => {
+    for (const x of bar.querySelectorAll('button, select')) x.tabIndex = -1;
+    el.tabIndex = 0;
+  };
+  setStop(items()[0]);
+  bar.addEventListener('focusin', (e) => setStop(e.target));
+  bar.addEventListener('keydown', (e) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+    if (e.target.tagName === 'SELECT' && !['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+    const list = items();
+    const i = list.indexOf(e.target);
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? list.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + list.length) % list.length;
+    e.preventDefault();
+    list[next].focus();
+  });
 }
 
 function updateToolbar(state = editor && editor.state()) {
@@ -442,6 +524,15 @@ function buildMenus() {
       ],
     },
     {
+      label: 'Insert',
+      items: () => [
+        { label: 'Page break', shortcut: 'Ctrl+Enter', action: cmd(() => editor.pageBreak()), tip: 'Start the next part on a new page' },
+        { label: 'Special character…', action: openSymbols },
+        '-',
+        { label: 'Works Cited heading', action: cmd(() => insertWorksCited()), tip: 'Starts a new page with a centered “Works Cited” heading; entries below get a hanging indent' },
+      ],
+    },
+    {
       label: 'Format',
       items: () => [
         markItem('Bold', MARKS.b, 'Ctrl+B'),
@@ -470,7 +561,10 @@ function buildMenus() {
         { label: 'Increase indent', shortcut: 'Tab', action: cmd(() => editor.indent(1)) },
         { label: 'Decrease indent', shortcut: 'Shift+Tab', action: cmd(() => editor.indent(-1)) },
         '-',
+        { label: 'Page break before', checked: () => !!para().pb, action: cmd(() => editor.setParaAttr({ pb: !para().pb }, 'formatPageBreak')), tip: 'Start this paragraph on a new page' },
+        '-',
         { header: 'Whole document' },
+        { label: 'Page numbers', checked: () => docStyle(rec.header.doc_style).pageNumbers, action: () => setDocStyle({ pageNumbers: !docStyle(rec.header.doc_style).pageNumbers }), tip: 'Number the pages when printing or downloading for Word' },
         { label: 'Space after paragraphs', checked: () => docStyle(rec.header.doc_style).after, action: () => setDocStyle({ after: !docStyle(rec.header.doc_style).after }) },
         { label: 'Indent first lines', checked: () => docStyle(rec.header.doc_style).firstLine, action: () => setDocStyle({ firstLine: !docStyle(rec.header.doc_style).firstLine }) },
       ],
@@ -489,6 +583,27 @@ function buildMenus() {
   ], { onClose: () => editor && editor.focus() }));
 }
 
+// Works Cited: a new page, a centered heading, then an empty entry paragraph with a hanging indent.
+function insertWorksCited() {
+  const len = rec.text.length;
+  editor.setSel(len, len, false);
+  editor.batch(() => {
+    const k = rec.doc.paras.length - 1;
+    const [ps, pe] = rec.doc.paraBounds()[k];
+    let head = k;
+    if (pe > ps) {
+      editor.emit({ k: 'ins', p: len, x: '\n', it: 'insertWorksCited' });
+      head = k + 1;
+    }
+    editor.emit({ k: 'ins', p: rec.text.length, x: 'Works Cited', it: 'insertWorksCited' });
+    editor.emit({ k: 'para', a: head, b: 1, set: { s: 'p', al: 'c', li: '', in: 0, pb: true }, it: 'insertWorksCited' });
+    editor.emit({ k: 'ins', p: rec.text.length, x: '\n', it: 'insertWorksCited' });
+    editor.emit({ k: 'para', a: head + 1, b: 1, set: { s: 'bib', al: 'l' }, it: 'insertWorksCited' });
+  });
+  editor.after(rec.text.length);
+  editor.announce('Works Cited page added');
+}
+
 // ---------- status bar, pages, zoom, navigation ----------
 
 function updateWords() {
@@ -502,8 +617,33 @@ function updateWords() {
   btn.textContent = label;
   const over = p.words_max && total > p.words_max;
   btn.classList.toggle('warn-text', !!over);
+  if (p.words_min || p.words_max) {
+    const target = p.words_min || p.words_max;
+    const pct = Math.min(100, Math.round((total / target) * 100));
+    btn.append(h('span', { class: `wbar${over ? ' over' : total >= target ? ' done' : ''}`, 'aria-hidden': 'true' }, h('i', { style: `width:${pct}%` })));
+  }
   btn.dataset.tip = (p.words_min || p.words_max) ? `Word count details. Required length: ${p.words_min || 0}–${p.words_max || 'any'} words.` : 'Word count details';
 }
+
+function updateDue() {
+  const el = $('#due-status');
+  if (!config || !config.due) {
+    el.textContent = '';
+    return;
+  }
+  const due = new Date(config.due);
+  const left = due - Date.now();
+  const when = due.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  let rel;
+  if (left < 0) rel = 'past due';
+  else if (left < 3600_000) rel = `${Math.max(1, Math.round(left / 60_000))} min left`;
+  else if (left < 2 * 86_400_000) rel = `${Math.round(left / 3600_000)} h left`;
+  else rel = `${Math.round(left / 86_400_000)} days left`;
+  el.textContent = `Due ${when} (${rel})`;
+  el.className = left < 0 ? 'bad-text' : left < 86_400_000 ? 'warn-text' : 'muted';
+  el.dataset.tip = left < 0 ? 'The due date has passed. You can still write; your instructor will see when each part was written.' : 'The due date set by your instructor';
+}
+setInterval(() => rec && rec.inSession && updateDue(), 30_000);
 
 let pagesTimer = null;
 function pagesLater() {
@@ -542,6 +682,10 @@ $('#zoom-label').addEventListener('click', () => setPref('zoom', 100));
 $('#view-page').addEventListener('click', () => setPref('layout', 'page'));
 $('#view-web').addEventListener('click', () => setPref('layout', 'web'));
 $('#sb-words').addEventListener('click', openCount);
+$('#skip-doc').addEventListener('click', (e) => {
+  e.preventDefault();
+  if (editor) editor.focus();
+});
 $('#nav-close').addEventListener('click', () => setPref('nav', false));
 $('#sources-close').addEventListener('click', () => setPref('sources', false));
 // Clicking the page outside the text puts the caret at the nearest end, as in a word processor.
@@ -750,7 +894,8 @@ srcEd.addEventListener('paste', () => {
 });
 srcEd.addEventListener('drop', (e) => e.preventDefault());
 for (const ev of ['copy', 'cut']) {
-  srcEd.addEventListener(ev, () => {
+  srcEd.addEventListener(ev, (e) => {
+    if (!e.isTrusted) return;
     const t = srcEd.value.slice(srcEd.selectionStart, srcEd.selectionEnd);
     if (t) clips.set(t, { pane: 'src' });
   });
@@ -827,13 +972,19 @@ function updateStampPill() {
 }
 
 let saving = null;
+let lastVersionAt = 0;
+const VERSION_EVERY_MS = 10 * 60_000;
 async function saveDraft() {
   if (!rec || saving) return saving;
   dirty = false;
   saving = (async () => {
     try {
-      const file = await rec.toFile();
-      await putDraft(draftKey, { file: structuredClone(file), savedAt: Date.now() });
+      const file = structuredClone(await rec.toFile());
+      await putDraft(draftKey, { file, savedAt: Date.now(), lastFileSave, eventsAtFileSave });
+      if (Date.now() - lastVersionAt > VERSION_EVERY_MS) {
+        lastVersionAt = Date.now();
+        await addVersion(cfgHash, file, countWords(file.final.text));
+      }
       $('#autosave-status').textContent = `Saved ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
       $('#autosave-status').dataset.tip = 'Your draft is saved in this browser automatically. Use Save file to get the file you submit.';
     } catch {
@@ -859,13 +1010,74 @@ async function saveFileFrom(file) {
   const w = countWords(file.final.text);
   const bytes = await serializeFile(file);
   download(bytes, fileName(file), 'application/gzip');
+  lastFileSave = Date.now();
+  eventsAtFileSave = file.events.length;
+  updateFileSaveStatus();
+  await showReceipt(file, bytes);
   const notes = [];
   if (p.words_min && w < p.words_min) notes.push(`it’s under the ${p.words_min}-word minimum`);
   if (p.words_max && w > p.words_max) notes.push(`it’s over the ${p.words_max}-word limit`);
-  toast(`Saved ${fileName(file)}. Upload this file to your course.` + (notes.length ? ` Note: ${notes.join(' and ')}.` : ''), 7000);
+  if (notes.length) toast(`Note: ${notes.join(' and ')}.`, 7000);
 }
 
+async function showReceipt(file, bytes) {
+  const full = await sha256Hex(bytes);
+  const code = fingerprintCode(full);
+  const when = new Date();
+  const words = countWords(file.final.text);
+  $('#receipt-name').textContent = fileName(file);
+  $('#receipt-code').textContent = code;
+  $('#receipt-meta').textContent = `${when.toLocaleString()} · ${words.toLocaleString()} words · ${file.events.length.toLocaleString()} edits recorded`;
+  const text = `Draftwork receipt\n${config.title}\n${file.header.student_label}\n${fileName(file)}\nSaved ${when.toLocaleString()}\nFingerprint: ${code}\nSHA-256: ${full}`;
+  $('#receipt-copy').onclick = () => navigator.clipboard.writeText(text).then(() => toast('Receipt copied'), () => toast('Copy failed'));
+  try {
+    await putDraft(`receipt:${cfgHash}:${when.getTime()}`, { code, full, name: fileName(file), words, savedAt: when.getTime() });
+  } catch { /* not kept */ }
+  const dlg = $('#receipt-dlg');
+  if (!dlg.open) dlg.showModal();
+}
+$('#receipt-dlg').addEventListener('close', () => editor && rec && rec.inSession && editor.focus());
+
+// ---------- file-save reminders ----------
+
+let lastFileSave = 0;
+let eventsAtFileSave = 0;
+const REMIND_MS = 30 * 60_000;
+let lastReminder = Date.now();
+
+const unsavedToFile = () => rec && rec.events.length > eventsAtFileSave;
+
+function updateFileSaveStatus() {
+  const el = $('#filesave-status');
+  if (!rec) return;
+  const ago = lastFileSave ? Date.now() - lastFileSave : null;
+  const rel = (ms) => (ms < 60_000 ? 'just now' : ms < 3600_000 ? `${Math.round(ms / 60_000)} min ago` : `${Math.round(ms / 3600_000)} h ago`);
+  el.textContent = !lastFileSave ? 'File not saved yet' : unsavedToFile() ? `File saved ${rel(ago)}` : 'File up to date';
+  const stale = unsavedToFile() && (!lastFileSave || ago > REMIND_MS);
+  el.classList.toggle('warn-text', !!stale);
+  el.dataset.tip = 'Your draft is kept in this browser, but only the saved file can be submitted, and it protects your work if this browser’s data is cleared. Click to save now.';
+  if (stale && rec.inSession && Date.now() - lastReminder > REMIND_MS && rec.events.length - eventsAtFileSave > 200) {
+    lastReminder = Date.now();
+    toast('Reminder: save your file (Ctrl+S) so your work is safe outside this browser.', 7000);
+  }
+}
+$('#filesave-status').addEventListener('click', () => saveNow());
+setInterval(updateFileSaveStatus, 30_000);
+
+window.addEventListener('beforeunload', (e) => {
+  if (rec && rec.inSession && unsavedToFile()) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
 async function saveNow() {
+  if (config.ai_disclosure && !rec.header.ai_use) {
+    toast('This assignment asks whether you used AI tools. Please answer, then save again.', 6000);
+    openNotes();
+    $('#ai-used').focus();
+    return;
+  }
   const b = $('#save-btn');
   b.disabled = true;
   try {
@@ -902,7 +1114,16 @@ async function openPreview() {
   const F = finalize(await analyzeFile(file, { expectedConfigHash: cfgHash }));
   $('#preview').classList.remove('hidden');
   document.body.style.overflow = 'hidden';
-  renderReport($('#preview-body'), F, { mode: 'student' });
+  renderReport($('#preview-body'), F, {
+    mode: 'student',
+    onFlagNote: (id, text) => {
+      const notes = { ...(rec.header.flag_notes || {}) };
+      if (text) notes[id] = text;
+      else delete notes[id];
+      rec.header.flag_notes = notes;
+      saveDraft();
+    },
+  });
 }
 $('#preview-btn').addEventListener('click', openPreview);
 $('#ended-preview').addEventListener('click', openPreview);
@@ -924,12 +1145,23 @@ function renderAttachments() {
 function openNotes() {
   $('#dlg-notes').value = rec.header.process_notes || '';
   $('#dlg-dictation').checked = !!rec.header.dictation_mode;
+  const ai = $('#ai-fieldset');
+  ai.classList.toggle('hidden', !config.ai_disclosure);
+  if (config.ai_disclosure) {
+    const sel = $('#ai-used');
+    if (sel.options.length === 1) for (const [k, v] of Object.entries(AI_USE)) sel.append(h('option', { value: k }, v));
+    sel.value = (rec.header.ai_use && rec.header.ai_use.used) || '';
+    $('#ai-detail').value = (rec.header.ai_use && rec.header.ai_use.detail) || '';
+  }
   renderAttachments();
   $('#notes-dlg').showModal();
 }
 $('#notes-dlg').addEventListener('close', () => {
   rec.header.process_notes = $('#dlg-notes').value.trim();
   rec.header.dictation_mode = $('#dlg-dictation').checked;
+  if (config.ai_disclosure && $('#ai-used').value) {
+    rec.header.ai_use = { used: $('#ai-used').value, detail: $('#ai-detail').value.trim() };
+  }
   saveDraft();
   if (editor && rec.inSession) editor.focus();
 });

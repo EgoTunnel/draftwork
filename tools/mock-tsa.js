@@ -13,13 +13,13 @@ function rawSigToDer(raw) {
   return A.seq(A.int(raw.subarray(0, half)), A.int(raw.subarray(half)));
 }
 
-export async function createMockTsa() {
+export async function createMockTsa(subjectName = DEMO_TSA_NAME) {
   const keys = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
   const spki = new Uint8Array(await crypto.subtle.exportKey('spki', keys.publicKey));
   const sign = async (data) =>
     rawSigToDer(new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, keys.privateKey, data)));
 
-  const name = A.seq(A.set(A.seq(A.oid('2.5.4.3'), A.utf8String(DEMO_TSA_NAME))));
+  const name = A.seq(A.set(A.seq(A.oid('2.5.4.3'), A.utf8String(subjectName))));
   const serial = crypto.getRandomValues(new Uint8Array(8));
   serial[0] &= 0x7f;
   const algId = A.seq(A.oid(ECDSA_SHA256));

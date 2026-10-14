@@ -5,7 +5,7 @@ import { canonical } from './canon.js';
 
 export const MARKS = { b: 1, i: 2, u: 4, s: 8, sup: 16, sub: 32, hl: 64 };
 export const ALL_MARKS = 127;
-export const STYLES = { p: 'Normal', title: 'Title', h1: 'Heading 1', h2: 'Heading 2', h3: 'Heading 3', quote: 'Quote' };
+export const STYLES = { p: 'Normal', title: 'Title', h1: 'Heading 1', h2: 'Heading 2', h3: 'Heading 3', quote: 'Quote', bib: 'Works Cited' };
 export const ALIGNS = { l: 'Left', c: 'Center', r: 'Right', j: 'Justify' };
 export const LISTS = { '': 'None', ul: 'Bulleted', ol: 'Numbered' };
 export const MAX_INDENT = 5;
@@ -46,10 +46,17 @@ export function normPara(a) {
   if (!(p.al in ALIGNS)) throw new Error(`unknown alignment ${p.al}`);
   if (!(p.li in LISTS)) throw new Error(`unknown list type ${p.li}`);
   if (!Number.isInteger(p.in) || p.in < 0 || p.in > MAX_INDENT) throw new Error('bad indent');
-  return { s: p.s, al: p.al, li: p.li, in: p.in };
+  // `pb` (page break before) is only present when set, so documents without breaks hash as before.
+  return p.pb ? { s: p.s, al: p.al, li: p.li, in: p.in, pb: true } : { s: p.s, al: p.al, li: p.li, in: p.in };
 }
 
-export const samePara = (a, b) => a.s === b.s && a.al === b.al && a.li === b.li && a.in === b.in;
+export const samePara = (a, b) => a.s === b.s && a.al === b.al && a.li === b.li && a.in === b.in && !!a.pb === !!b.pb;
+
+// New paragraphs created by Enter never inherit a page break.
+const withoutBreak = (a) => {
+  const { pb, ...rest } = a;
+  return rest;
+};
 
 export function countNl(s) {
   let c = 0;
@@ -121,8 +128,8 @@ export class DocModel {
       const base = this.paras[k1];
       const lineEnd = mid.indexOf('\n', p);
       const atEnd = (lineEnd === -1 ? mid.length : lineEnd) === p;
-      const next = HEADING_STYLES.has(base.s) ? { ...base, s: 'p' } : { ...base };
-      const copies = (src) => Array.from({ length: nl }, () => ({ ...src }));
+      const next = withoutBreak(HEADING_STYLES.has(base.s) ? { ...base, s: 'p' } : { ...base });
+      const copies = (src) => Array.from({ length: nl }, () => withoutBreak({ ...src }));
       if (startOfPara && !atEnd) this.paras.splice(k1, 0, ...copies(next));
       else if (atEnd) this.paras.splice(k1 + 1, 0, ...copies(next));
       else this.paras.splice(k1 + 1, 0, ...copies(base));
