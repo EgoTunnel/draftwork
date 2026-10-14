@@ -1,8 +1,8 @@
 // Turns input actions into the event log and writes the stamped checkpoint chain.
 // Used by the student sandbox and by the simulator (with a fake clock and the demo TSA).
-import { sha256Hex } from './canon.js';
+import { sha256Hex, canonical } from './canon.js';
 import {
-  CHECKPOINT_MS, CHECKPOINT_EVENTS, applyOp, isText, isSrc, replay, eventsHash, checkpointHash, chainSeed, buildFile,
+  CHECKPOINT_MS, CHECKPOINT_EVENTS, applyEvent, replay, eventsHash, checkpointHash, chainSeed, buildFile,
 } from './format.js';
 
 export class Recorder {
@@ -16,7 +16,7 @@ export class Recorder {
     this.now = now;
     this.onChange = onChange;
     const state = replay(events);
-    this.text = state.text;
+    this.doc = state.doc; // the essay, with formatting
     this.src = state.src;
     this.sessionStart = null;
     this.lastCpAt = now();
@@ -41,10 +41,16 @@ export class Recorder {
       events: file.events.slice(),
       checkpoints: file.checkpoints.map((c) => ({ ...c })),
     });
-    if (r.text !== file.final.text) throw new Error('This file does not replay to its own text, so it cannot be continued.');
+    if (r.text !== file.final.text || canonical(r.doc.format()) !== canonical(file.final.format || null)) {
+      throw new Error('This file does not replay to its own text, so it cannot be continued.');
+    }
     const last = r.checkpoints[r.checkpoints.length - 1];
     r.prevHash = last ? await checkpointHash(last) : await chainSeed(r.cfgHash, r.header);
     return r;
+  }
+
+  get text() {
+    return this.doc.text;
   }
 
   get inSession() {
@@ -64,13 +70,11 @@ export class Recorder {
     this.sessionStart = null;
   }
 
-  // Records an event. Text events carry p, n and x and are applied to the right pane.
+  // Records an event. Text and formatting events are applied first, so an invalid one throws
+  // before anything is logged.
   record(partial) {
     if (!this.inSession) throw new Error('No session in progress');
-    if (isText(partial)) {
-      if (isSrc(partial)) this.src = applyOp(this.src, partial);
-      else this.text = applyOp(this.text, partial);
-    }
+    this.src = applyEvent(this.doc, this.src, partial);
     return this.push(partial);
   }
 
@@ -93,7 +97,7 @@ export class Recorder {
     if (this.events.length <= this.covered) return this.cpQueue;
     const range = [this.covered, this.events.length - 1];
     const slice = this.events.slice(range[0], range[1] + 1);
-    const text = this.text;
+    const docState = this.doc.hashInput();
     this.covered = range[1] + 1;
     this.lastCpAt = this.now();
     this.cpQueue = this.cpQueue.then(async () => {
@@ -101,7 +105,7 @@ export class Recorder {
         c: this.checkpoints.length,
         range,
         events_hash: await eventsHash(slice),
-        doc_hash: await sha256Hex(text),
+        doc_hash: await sha256Hex(docState),
         prev: this.prevHash,
       };
       this.prevHash = await checkpointHash(cp);
@@ -158,6 +162,7 @@ export class Recorder {
       checkpoints: this.checkpoints,
       finalText: this.text,
       finalHash: await sha256Hex(this.text),
+      finalFormat: this.doc.format(),
     });
   }
 }

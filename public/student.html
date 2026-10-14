@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Draftwork Sandbox</title>
+  <title>Draftwork</title>
+  <script>try{var a=JSON.parse(localStorage.getItem('draftwork.appearance')||'{}');if(a.theme&&a.theme!=='system')document.documentElement.dataset.theme=a.theme;if(a.size&&a.size!=='normal')document.documentElement.dataset.size=a.size}catch(e){}</script>
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
@@ -12,14 +13,13 @@
     <header class="topbar">
       <a class="brand" href="./" id="brand">Draftwork</a>
       <span class="spacer"></span>
-      <span class="small muted">Student sandbox</span>
+      <span class="appearance-slot"></span>
     </header>
     <main class="page narrow stack">
       <div class="card stack hidden" id="need-code">
         <h1>Open your assignment</h1>
-        <p class="muted">Paste the link or code your instructor gave you.</p>
         <div class="row">
-          <input type="text" id="code-input" placeholder="Assignment link or code" style="flex:1">
+          <input type="text" id="code-input" placeholder="Paste the assignment link or code" aria-label="Assignment link or code" style="flex:1">
           <button class="btn primary" id="code-btn" type="button">Open</button>
         </div>
       </div>
@@ -27,17 +27,12 @@
       <div class="notice bad hidden" id="refusal" role="alert"></div>
 
       <div class="card stack hidden" id="assignment-card">
-        <div class="layer-label">Assignment</div>
-        <h1 id="a-title"></h1>
-        <ul id="a-policy" class="small" style="margin:0;padding-left:18px"></ul>
-        <details>
-          <summary>What Draftwork records</summary>
-          <div class="small muted" style="margin-top:8px">
-            <p>Every edit you make (typing, deleting, moving text), when it happened, and when the window loses focus. Pasting from outside the document is handled by the assignment’s policy; refused pastes are logged by length only, never their content.</p>
-            <p>Every minute or so the sandbox sends a <em>hash</em> of your progress to a timestamp service. Only that hash leaves your computer; your text stays here until you save the file and upload it to your LMS yourself.</p>
-            <p>You can open the exact view your instructor will see at any time with <strong>Preview</strong>. A process pattern can only ever lead to a conversation, never directly to a penalty.</p>
-          </div>
-        </details>
+        <div class="row" style="align-items:baseline">
+          <h1 id="a-title" style="margin:0"></h1>
+          <span class="spacer"></span>
+          <button class="btn small ghost" type="button" id="recorded-info" data-tip="Your edits and when you made them are saved with your work, so your instructor can replay how it was written. While you write, only a fingerprint of your progress is sent online, to timestamp it. Your text stays on this computer until you upload the file.">What’s recorded?</button>
+        </div>
+        <ul id="a-policy" class="facts"></ul>
       </div>
 
       <div class="card stack hidden" id="resume-card">
@@ -45,98 +40,136 @@
         <p class="muted" id="resume-info"></p>
         <div class="row">
           <button class="btn primary" id="resume-btn" type="button">Continue writing</button>
-          <button class="btn" id="resume-save" type="button">Save the file</button>
+          <button class="btn" id="resume-save" type="button" data-tip="Download your submission file without opening the draft">Save file</button>
           <span class="spacer"></span>
-          <button class="btn ghost small" id="discard-btn" type="button">Discard this draft</button>
+          <button class="btn ghost small" id="discard-btn" type="button" data-tip="Remove this draft from this browser. Save the file first if you might need it.">Discard draft</button>
         </div>
       </div>
 
       <form class="card stack hidden" id="new-card">
-        <h2>Start a new piece</h2>
+        <h2>Start writing</h2>
         <div>
-          <label for="label-input">Your name and student number <span class="hint">(the only personal data in the file)</span></label>
+          <label for="label-input" data-tip="Shown to your instructor with your work. It’s the only personal information in the file and can’t be changed later.">Name and student number</label>
           <input type="text" id="label-input" required placeholder="A. Student, 000123456" autocomplete="name">
         </div>
         <div>
-          <label for="notes-input">Process notes <span class="hint">(optional, you can add these later)</span></label>
-          <textarea id="notes-input" rows="2" placeholder="e.g. Outlined on paper first; used dictation for paragraph 3."></textarea>
+          <label for="notes-input" data-tip="Anything your instructor should know about how you worked, e.g. you outlined on paper or used dictation. You can add this later from File → Notes.">Notes <span class="hint">(optional)</span></label>
+          <textarea id="notes-input" rows="2" placeholder="e.g. Outlined on paper first"></textarea>
         </div>
-        <label class="check"><input type="checkbox" id="dictation-input"> <span>Dictation mode <span class="hint">(adds a note to your file; dictated chunks are labelled, never flagged as large insertions)</span></span></label>
+        <label class="check" data-tip="Dictated text arrives in chunks. This adds a note to your file so the chunks are read as dictation."><input type="checkbox" id="dictation-input"> <span>I’m using dictation</span></label>
         <div class="row">
-          <button class="btn primary" type="submit" id="start-btn">Start writing</button>
+          <button class="btn primary" type="submit" id="start-btn">Start</button>
           <span class="small muted" id="start-status"></span>
         </div>
       </form>
 
-      <div class="card stack hidden" id="file-card">
-        <h2>Continue from a saved file</h2>
-        <p class="small muted">Working on a different computer? Open the <code>.draftwork</code> file you saved last time.</p>
-        <input type="file" id="continue-file" accept=".draftwork">
+      <div class="card hidden" id="file-card">
+        <div class="row">
+          <span>Working from another computer?</span>
+          <span class="spacer"></span>
+          <label class="btn" for="continue-file" data-tip="Open the .draftwork file you saved last time and keep writing">Open saved file…</label>
+          <input type="file" id="continue-file" accept=".draftwork" class="hidden">
+        </div>
       </div>
     </main>
   </div>
 
   <!-- Writer -->
   <div id="screen-writer" class="writer hidden">
-    <header class="topbar">
-      <a class="brand" href="./" id="brand2" title="Draftwork"></a>
-      <span class="writer-title" id="w-title"></span>
-      <span class="spacer"></span>
-      <span class="pill" id="stamp-pill" title="Checkpoint timestamps"><span class="dot"></span><span id="stamp-text">Connecting…</span></span>
-      <span class="pill" id="words-pill">0 words</span>
-      <button class="btn small" id="notes-btn" type="button">Notes</button>
-      <button class="btn small" id="preview-btn" type="button">Preview</button>
-      <button class="btn small primary" id="save-btn" type="button">Save file</button>
-      <button class="btn small ghost" id="end-btn" type="button">End session</button>
-    </header>
-    <div class="writer-body" id="writer-body">
-      <div class="editor-wrap">
-        <textarea id="editor" spellcheck="true" aria-label="Your writing" placeholder="Start writing…"></textarea>
+    <header class="appbar">
+      <a class="brand-mini" href="./" id="brand2" aria-label="Draftwork home" data-tip="Draftwork"></a>
+      <div class="appbar-main">
+        <div class="doc-title" id="w-title"></div>
+        <div id="menus"></div>
       </div>
-      <aside class="sources hidden" id="sources-pane">
-        <header>
-          <strong>Sources</strong>
-          <div class="small muted">Paste quotes and references here. They are tagged and kept separate; copy from here into your writing.</div>
+      <span class="spacer"></span>
+      <span class="pill" id="stamp-pill"><span class="dot"></span><span id="stamp-text">Connecting…</span></span>
+      <span class="appearance-slot"></span>
+      <button class="btn small" id="preview-btn" type="button" data-tip="See your work the way your instructor will">Preview</button>
+      <button class="btn small primary" id="save-btn" type="button" data-tip="Download your submission file to upload to your course (Ctrl+S)">Save file</button>
+    </header>
+    <div class="toolbar" id="toolbar" role="toolbar" aria-label="Formatting"></div>
+    <div class="writer-body" id="writer-body">
+      <aside class="navpane hidden" id="navpane" aria-label="Navigation">
+        <header class="pane-head"><strong>Navigation</strong><button class="icon-btn" type="button" id="nav-close" aria-label="Close navigation" data-tip="Close"></button></header>
+        <div id="nav-list" class="nav-list"></div>
+      </aside>
+      <div class="desk" id="desk">
+        <div class="sheet" id="sheet">
+          <div class="doc" id="editor" spellcheck="true" aria-label="Document"></div>
+        </div>
+      </div>
+      <div class="findbar hidden" id="findbar" role="search">
+        <div class="find-row">
+          <input type="text" id="find-input" placeholder="Find" aria-label="Find">
+          <span class="find-count" id="find-count"></span>
+          <button class="icon-btn" type="button" id="find-prev" aria-label="Previous match" data-tip="Previous (Shift+Enter)"></button>
+          <button class="icon-btn" type="button" id="find-next" aria-label="Next match" data-tip="Next (Enter)"></button>
+          <button class="icon-btn toggle" type="button" id="find-case" aria-pressed="false" aria-label="Match case" data-tip="Match case">Aa</button>
+          <button class="icon-btn toggle" type="button" id="find-toggle-replace" aria-pressed="false" aria-label="Replace" data-tip="Replace (Ctrl+H)"></button>
+          <button class="icon-btn" type="button" id="find-close" aria-label="Close" data-tip="Close (Esc)"></button>
+        </div>
+        <div class="find-row hidden" id="replace-row">
+          <input type="text" id="replace-input" placeholder="Replace with" aria-label="Replace with" maxlength="50">
+          <button class="btn small" type="button" id="replace-one">Replace</button>
+          <button class="btn small" type="button" id="replace-all">All</button>
+        </div>
+      </div>
+      <aside class="sources hidden" id="sources-pane" aria-label="Sources">
+        <header class="pane-head">
+          <strong data-tip="Paste quotes and references here, then copy them into your writing. Pasting from outside is allowed here.">Sources</strong>
+          <button class="icon-btn" type="button" id="sources-close" aria-label="Hide sources" data-tip="Hide"></button>
         </header>
-        <textarea id="sources" spellcheck="false" aria-label="Sources pane"></textarea>
+        <textarea id="sources" spellcheck="false" aria-label="Sources" placeholder="Paste quotes and references here"></textarea>
       </aside>
     </div>
-    <div class="statusbar">
-      <span id="autosave-status">Saved in this browser</span>
+    <footer class="statusbar">
+      <span id="sb-page" data-tip="Approximate page, based on a letter-size page">Page 1 of 1</span>
+      <button class="linklike" type="button" id="sb-words" data-tip="Word count details">0 words</button>
+      <span id="autosave-status" class="muted"></span>
       <span class="spacer"></span>
-      <span id="policy-note"></span>
-    </div>
+      <span id="policy-note" class="muted"></span>
+      <div class="sb-group" role="group" aria-label="Layout">
+        <button class="icon-btn toggle" type="button" id="view-page" aria-label="Page view" data-tip="Page view"></button>
+        <button class="icon-btn toggle" type="button" id="view-web" aria-label="Full-width view" data-tip="Full-width view"></button>
+      </div>
+      <div class="sb-group zoom" role="group" aria-label="Zoom">
+        <button class="icon-btn" type="button" id="zoom-out" aria-label="Zoom out" data-tip="Zoom out"></button>
+        <input type="range" id="zoom" min="50" max="200" step="10" value="100" aria-label="Zoom">
+        <button class="icon-btn" type="button" id="zoom-in" aria-label="Zoom in" data-tip="Zoom in"></button>
+        <button class="linklike" type="button" id="zoom-label" data-tip="Reset to 100%">100%</button>
+      </div>
+    </footer>
   </div>
 
   <!-- Session ended -->
   <div id="screen-ended" class="hidden">
-    <header class="topbar"><a class="brand" href="./" id="brand3">Draftwork</a></header>
+    <header class="topbar"><a class="brand" href="./" id="brand3">Draftwork</a><span class="spacer"></span><span class="appearance-slot"></span></header>
     <main class="page narrow">
       <div class="card stack">
         <h1>Session ended</h1>
-        <p>Your draft is saved in this browser. To submit, save the <code>.draftwork</code> file and upload it to your LMS dropbox. You can keep writing later; each sitting becomes a new session in the same file.</p>
+        <p>Your draft is saved in this browser. When you’re done, save the file and upload it to your course.</p>
         <div class="row">
           <button class="btn primary" id="ended-save" type="button">Save file</button>
           <button class="btn" id="ended-preview" type="button">Preview</button>
-          <button class="btn" id="ended-continue" type="button">Continue writing</button>
+          <button class="btn" id="ended-continue" type="button">Keep writing</button>
         </div>
       </div>
     </main>
   </div>
 
-  <!-- Notes & accommodations -->
+  <!-- Notes -->
   <dialog id="notes-dlg">
     <form method="dialog">
       <div class="dlg-body stack">
-        <h2>Notes and accommodations</h2>
+        <h2>Notes</h2>
         <div>
-          <label for="dlg-notes">Process notes <span class="hint">(shown to your instructor beside any flag)</span></label>
-          <textarea id="dlg-notes" rows="3" placeholder="e.g. Drafted on paper first; I compose in my head and type quickly."></textarea>
+          <label for="dlg-notes" data-tip="Shown to your instructor next to anything they ask about.">How you worked <span class="hint">(optional)</span></label>
+          <textarea id="dlg-notes" rows="3" placeholder="e.g. Drafted on paper first"></textarea>
         </div>
-        <label class="check"><input type="checkbox" id="dlg-dictation"> <span>Dictation mode</span></label>
+        <label class="check" data-tip="Adds a note to your file that you used dictation."><input type="checkbox" id="dlg-dictation"> <span>I’m using dictation</span></label>
         <div>
-          <label for="dlg-outline">Attach an outline <span class="hint">(a photo of paper notes, for example)</span></label>
-          <p class="small muted" style="margin:0 0 6px">Only the file name and a fingerprint (hash) are stored, as evidence that it existed. The image itself is not stored or sent.</p>
+          <label for="dlg-outline" data-tip="Only the file name and a fingerprint are kept, as a record that it existed. The file itself isn’t stored or sent.">Attach an outline or notes <span class="hint">(photo or PDF)</span></label>
           <input type="file" id="dlg-outline" accept="image/*,.pdf">
           <ul id="dlg-attachments" class="small muted" style="margin:6px 0 0;padding-left:18px"></ul>
         </div>
@@ -145,10 +178,30 @@
     </form>
   </dialog>
 
+  <!-- Word count -->
+  <dialog id="count-dlg">
+    <form method="dialog">
+      <div class="dlg-body">
+        <h2>Word count</h2>
+        <table class="kv" id="count-table"></table>
+      </div>
+      <div class="dlg-foot"><button class="btn primary" value="ok">Close</button></div>
+    </form>
+  </dialog>
+
+  <!-- Special characters -->
+  <dialog id="symbols-dlg" class="symbols-dlg">
+    <div class="dlg-body">
+      <div class="row"><h2 style="margin:0">Special characters</h2><span class="spacer"></span><button class="icon-btn" type="button" id="symbols-close" aria-label="Close"></button></div>
+      <div class="symbol-grid" id="symbol-grid"></div>
+    </div>
+  </dialog>
+
   <!-- Preview -->
   <div class="overlay hidden" id="preview">
     <div class="overlay-bar">
-      <strong>Preview: what your instructor will see</strong>
+      <strong>Preview</strong>
+      <span class="muted small">How your instructor will see your work</span>
       <span class="spacer"></span>
       <button class="btn small primary" id="preview-close" type="button">Back to writing</button>
     </div>

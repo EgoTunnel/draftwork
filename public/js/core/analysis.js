@@ -4,6 +4,7 @@ import { canonical, sha256Hex } from './canon.js';
 import {
   applyOp, isText, isSrc, eventsHash, checkpointHash, chainSeed, thresholdsFor, countWords,
 } from './format.js';
+import { DocModel, isFormatEvent } from './doc.js';
 import { verifyToken } from './tsa.js';
 
 const ACTIVE_GAP_MS = 5 * 60_000; // gaps longer than this do not count as active time
@@ -97,6 +98,9 @@ export function inputLabel(e, policy) {
   if (e.it === 'insertFromPaste') return policy && policy.paste === 'allow' ? 'external paste (allowed)' : 'external paste';
   if (e.it === 'insertFromDrop') return 'drag-and-drop';
   if (e.it === 'insertReplacementText') return 'autocorrect / spellcheck';
+  if (e.it === 'findReplace') return 'find and replace';
+  if (e.it === 'insertSymbol') return 'special character';
+  if (e.it === 'historyUndo' || e.it === 'historyRedo') return e.it === 'historyUndo' ? 'undo' : 'redo';
   if (e.it === 'insertText') return 'typing';
   return e.it || e.k;
 }
@@ -121,6 +125,7 @@ export async function analyzeFile(file, { expectedConfigHash = null, knownConfig
   const cpEnds = new Map();
   for (const cp of file.checkpoints) if (Array.isArray(cp.range)) cpEnds.set(cp.range[1], null);
 
+  const model = new DocModel();
   let text = '';
   let src = '';
   const atEnd = [];
@@ -233,6 +238,8 @@ export async function analyzeFile(file, { expectedConfigHash = null, knownConfig
       } else if (e.k === 'move' && !isSrc(e)) {
         endRun();
         cursor = e.p;
+      } else if (isFormatEvent(e) && !isSrc(e)) {
+        model.apply(e);
       }
 
       if (isText(e)) {
@@ -331,7 +338,8 @@ export async function analyzeFile(file, { expectedConfigHash = null, knownConfig
           if (behindCurrentSentence(text, e.p)) behindEvents++;
 
           const end = restBlank(text, e.p + n);
-          text = applyOp(text, e);
+          model.apply(e);
+          text = model.text;
           atEnd.splice(e.p, n, ...new Array(x.length).fill(end));
           typed += x.length;
           deletedChars += n;
@@ -342,8 +350,8 @@ export async function analyzeFile(file, { expectedConfigHash = null, knownConfig
       tl.len[i] = text.length;
       tl.typed[i] = typed;
       tl.cursor[i] = cursor;
-      if (i % SNAPSHOT_EVERY === 0) snapshots.push({ i, text, src });
-      if (cpEnds.has(i)) cpEnds.set(i, text);
+      if (i % SNAPSHOT_EVERY === 0) snapshots.push({ i, src, doc: model.clone() });
+      if (cpEnds.has(i)) cpEnds.set(i, model.hashInput());
     }
   } catch (err) {
     replayError = err.message || String(err);
@@ -356,7 +364,7 @@ export async function analyzeFile(file, { expectedConfigHash = null, knownConfig
   const A = {
     file, config, T, events, tl, snapshots, sessions, header: file.header,
     cfgHash: file.assignment.config_hash,
-    replayText: text, replaySrc: src,
+    replayText: text, replaySrc: src, replayFormat: model.format(),
     raw: {
       pauses, iki, largeInserts, delEpisodes, structural, blurs, runs, bursts, awayBursts, pasteBlocked, untrusted,
       srcPastes, textEvents, behindEvents, typed, deletedChars, atEnd, active,
@@ -384,19 +392,25 @@ async function integrityChecks(A, { replayError, problems, cpEnds, expectedConfi
   {
     const finalHash = await sha256Hex(file.final.text);
     let status = 'pass';
-    let detail = `Replaying ${events.length.toLocaleString()} events from an empty document reproduces the final text exactly.`;
+    let detail = `${events.length.toLocaleString()} events replay to the submitted text exactly.`;
     if (replayError) {
       status = 'fail';
       detail = `Replay stopped: ${replayError}.`;
     } else if (A.replayText !== file.final.text) {
       status = 'fail';
       const d = firstDiff(A.replayText, file.final.text);
-      detail = `The replayed text differs from final_text starting at character ${d}.`;
+      detail = `The replayed text differs from the submitted text from character ${d} on.`;
     } else if (finalHash !== file.final.hash) {
       status = 'fail';
-      detail = 'final_text does not match its stored hash.';
+      detail = 'The submitted text does not match its stored hash.';
+    } else if (canonical(A.replayFormat) !== canonical(file.final.format || null)) {
+      status = 'fail';
+      detail = 'The text matches, but the submitted formatting differs from the replay.';
     }
-    checks.push({ id: 'replay', label: 'The replay reproduces final_text exactly', status, detail });
+    checks.push({
+      id: 'replay', label: 'Edit history rebuilds the submitted text', status, detail,
+      tip: 'Replaying every recorded edit from an empty page must produce exactly the submitted document.',
+    });
   }
 
   // 2. checkpoint chain
@@ -427,10 +441,11 @@ async function integrityChecks(A, { replayError, problems, cpEnds, expectedConfi
     if (!file.checkpoints.length && events.length) errs.push('there are no checkpoints');
     checks.push({
       id: 'chain',
-      label: 'The checkpoint chain is unbroken, and every doc_hash matches the replayed state',
+      label: 'History has not been edited',
+      tip: 'The checkpoint chain is unbroken, and the document at every checkpoint matches the replay.',
       status: errs.length ? 'fail' : 'pass',
       detail: errs.length ? cap(errs.slice(0, 3).join('; ')) + '.'
-        : file.checkpoints.length === 1 ? 'The checkpoint matches the replay.' : `${file.checkpoints.length} checkpoints link up and match the replay.`,
+        : file.checkpoints.length === 1 ? '1 checkpoint, matching the replay.' : `${file.checkpoints.length} checkpoints, all linked and matching.`,
     });
   }
 
@@ -441,20 +456,23 @@ async function integrityChecks(A, { replayError, problems, cpEnds, expectedConfi
     let detail;
     if (actual !== file.assignment.config_hash) {
       status = 'fail';
-      detail = 'The stored config does not match its own hash; the policy was edited after the fact.';
+      detail = 'The assignment settings in the file were changed after writing.';
     } else if (expectedConfigHash) {
       status = actual === expectedConfigHash ? 'pass' : 'fail';
-      detail = status === 'pass' ? 'Matches the assignment this sandbox was opened with.' : 'Written for a different assignment.';
+      detail = status === 'pass' ? `“${file.assignment.config.title}”` : 'Written for a different assignment.';
     } else if (knownConfigHashes) {
       status = knownConfigHashes.has(actual) ? 'pass' : 'unknown';
       detail = status === 'pass'
-        ? `Matches your saved assignment "${file.assignment.config.title}".`
-        : 'Not one of your saved assignments. Import the assignment code to check it.';
+        ? `“${file.assignment.config.title}”`
+        : 'Not one of your assignments. Import its code under Assignments to check.';
     } else {
       status = 'unknown';
-      detail = 'No instructor config to compare against.';
+      detail = 'No assignment to compare against.';
     }
-    checks.push({ id: 'config', label: "The assignment config hash matches the instructor's config", status, detail });
+    checks.push({
+      id: 'config', label: 'Written for this assignment', status, detail,
+      tip: "The assignment settings stored in the file (title, paste rules, limits) match the instructor's copy exactly.",
+    });
   }
 
   // 4. timestamps
@@ -466,7 +484,8 @@ async function integrityChecks(A, { replayError, problems, cpEnds, expectedConfi
     }
     checks.push({
       id: 'time',
-      label: 'Timestamps are monotonic within each session, and sessions do not overlap',
+      label: 'Times are in order',
+      tip: 'Event times only move forward within each session, and sessions do not overlap.',
       status: errs.length ? 'fail' : 'pass',
       detail: errs.length ? cap(errs.slice(0, 3).join('; ')) + '.' : `${S.length} session${S.length === 1 ? '' : 's'}, in order.`,
     });
@@ -510,14 +529,14 @@ async function integrityChecks(A, { replayError, problems, cpEnds, expectedConfi
     else if (!errs.length && demo) status = 'warn';
     const bits = [];
     if (errs.length) bits.push(cap(errs.slice(0, 3).join('; ')) + '.');
-    else if (stamped) bits.push(`${stamped} token${stamped === 1 ? '' : 's'} verify (signed by ${[...signers].join(', ')}).`);
-    if (demo) bits.push('Signed by the demo TSA, which is for testing only and proves nothing about time.');
-    if (missing) bits.push(`${missing} checkpoint${missing === 1 ? ' has' : 's have'} no stamp yet.`);
-    if (late) bits.push(`${late} stamp${late === 1 ? ' was' : 's were'} issued late (queued while offline).`);
-    if (stamped) bits.push('The certificate is not checked against a trusted root.');
+    else if (stamped) bits.push(`${stamped} verified, from ${[...signers].join(', ')}.`);
+    if (demo) bits.push('Demo timestamps (testing only).');
+    if (missing) bits.push(`${missing} not stamped.`);
+    if (late) bits.push(`${late} stamped late.`);
     checks.push({
       id: 'tsa',
-      label: 'TSA tokens verify, and their times match the session wall clock within tolerance',
+      label: 'Timestamps are verified',
+      tip: 'Each checkpoint carries an RFC 3161 timestamp from an outside service. Signatures are checked against the certificate in the token (not against a trusted root), and stamp times must match the recorded times.',
       status,
       detail: bits.join(' '),
     });
@@ -884,21 +903,20 @@ export function stateAt(A, i, since = i - 40) {
     if (s.i <= from) snap = s;
     else break;
   }
-  let text = snap ? snap.text : '';
+  const doc = snap ? snap.doc.clone() : new DocModel();
   let src = snap ? snap.src : '';
-  const origin = new Array(text.length).fill(-1);
+  const origin = new Array(doc.text.length).fill(-1);
   for (let k = snap ? snap.i + 1 : 0; k <= i && k < events.length; k++) {
     const e = events[k];
-    if (!isText(e)) continue;
     try {
-      if (isSrc(e)) src = applyOp(src, e);
-      else {
-        text = applyOp(text, e);
+      if (isText(e) && isSrc(e)) src = applyOp(src, e);
+      else if (isText(e)) {
+        doc.apply(e);
         origin.splice(e.p, e.n || 0, ...new Array((e.x || '').length).fill(k));
-      }
+      } else if (isFormatEvent(e) && !isSrc(e)) doc.apply(e);
     } catch {
       break;
     }
   }
-  return { text, src, origin };
+  return { text: doc.text, doc, src, origin };
 }

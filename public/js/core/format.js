@@ -2,6 +2,7 @@
 import {
   canonical, sha256Hex, gzip, gunzipToString, isGzip, fromUtf8, toBase64Url, fromBase64Url, randomHex,
 } from './canon.js';
+import { DocModel, isFormatEvent } from './doc.js';
 
 export const FORMAT = 'draftwork/1';
 export const APP_VERSION = '0.1.0';
@@ -99,20 +100,21 @@ export function applyOp(text, e) {
 export const isText = (e) => TEXT_KINDS.has(e.k) && typeof e.p === 'number';
 export const isSrc = (e) => e.pane === 'src';
 
+// Applies one event to the essay model or the sources-pane text. Returns the new sources text.
+export function applyEvent(doc, src, e) {
+  if (isText(e)) {
+    if (isSrc(e)) return applyOp(src, e);
+    doc.apply(e);
+  } else if (isFormatEvent(e) && !isSrc(e)) doc.apply(e);
+  return src;
+}
+
 // Replays every event from an empty document.
-// onEvent(i, state) is called after each event with { text, src } if provided.
-export function replay(events, onEvent) {
-  let text = '';
+export function replay(events) {
+  const doc = new DocModel();
   let src = '';
-  for (let i = 0; i < events.length; i++) {
-    const e = events[i];
-    if (isText(e)) {
-      if (isSrc(e)) src = applyOp(src, e);
-      else text = applyOp(text, e);
-    }
-    if (onEvent) onEvent(i, text, src);
-  }
-  return { text, src };
+  for (const e of events) src = applyEvent(doc, src, e);
+  return { text: doc.text, src, doc };
 }
 
 // Single replacement op between two strings, or null if equal.
@@ -146,14 +148,23 @@ export const chainSeed = (cfgHash, header) =>
 
 // ---------- files ----------
 
-export function buildFile({ header, config, cfgHash, events, checkpoints, finalText, finalHash }) {
+export function buildFile({ header, config, cfgHash, events, checkpoints, finalText, finalHash, finalFormat = null }) {
   return {
     header: { ...header, format: FORMAT, app_version: APP_VERSION },
     assignment: { config, config_hash: cfgHash },
     events,
     checkpoints,
-    final: { text: finalText, hash: finalHash },
+    final: finalFormat ? { text: finalText, hash: finalHash, format: finalFormat } : { text: finalText, hash: finalHash },
   };
+}
+
+// The final document as a model (formatting falls back to plain if it does not fit the text).
+export function finalDoc(file) {
+  try {
+    return DocModel.fromFormat(file.final.text, file.final.format);
+  } catch {
+    return new DocModel(file.final.text);
+  }
 }
 
 export async function serializeFile(file) {

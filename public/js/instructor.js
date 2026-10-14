@@ -1,11 +1,16 @@
-import { $, h, toast, copyText, LOGO } from './ui/dom.js';
+import { $, $$, h, toast, copyText, LOGO } from './ui/dom.js';
 import {
   newConfig, configHash, encodeConfig, decodeConfig, parseFile, DEFAULT_THRESHOLDS, THRESHOLD_LABELS, countWords,
 } from './core/format.js';
 import { analyzeFile, finalize, fmtDuration } from './core/analysis.js';
 import { renderReport } from './ui/report.js';
+import { initTooltips } from './ui/tooltip.js';
+import { appearanceButton } from './ui/appearance.js';
+import { ICONS } from './ui/icons.js';
 
+initTooltips();
 $('#brand').insertAdjacentHTML('afterbegin', LOGO);
+for (const slot of $$('.appearance-slot')) slot.append(appearanceButton());
 
 // ---------- assignment library (this browser only) ----------
 
@@ -45,39 +50,42 @@ function renderLibrary() {
   box.innerHTML = '';
   box.append(h('h2', null, 'Your assignments'));
   if (!library.length) {
-    box.append(h('p', { class: 'empty-state' }, 'None yet. Create one to get a link for students.'));
+    box.append(h('p', { class: 'empty-state' }, 'None yet.'));
     return;
   }
   for (const a of library) {
     const c = a.config;
     const link = studentLink(a.code);
     const pol = [
-      c.policy.paste === 'block' ? 'external paste blocked' : 'external paste allowed',
-      c.policy.sources_pane ? 'sources pane' : 'no sources pane',
+      c.policy.paste === 'block' ? 'Pasting blocked' : 'Pasting allowed',
+      c.policy.sources_pane ? 'sources panel' : null,
       c.policy.words_min || c.policy.words_max ? `${c.policy.words_min || 0}–${c.policy.words_max || '∞'} words` : null,
       Object.keys(c.thresholds || {}).length ? 'custom thresholds' : null,
     ].filter(Boolean).join(' · ');
-    box.append(h('div', { style: 'padding:12px 0;border-top:1px solid var(--border)' },
-      h('div', { class: 'row' }, h('strong', null, c.title), a.demo && h('span', { class: 'pill' }, 'demo'), h('span', { class: 'spacer' }),
-        h('button', { class: 'btn small', type: 'button', onclick: () => copyText(link) }, 'Copy student link'),
-        h('button', { class: 'btn small', type: 'button', onclick: () => copyText(a.code) }, 'Copy code'),
+    box.append(h('div', { class: 'assign-row' },
+      h('div', { class: 'row' },
+        h('strong', null, c.title), a.demo && h('span', { class: 'pill', 'data-tip': 'Added with the demo class' }, 'demo'),
+        h('span', { class: 'spacer' }),
+        h('button', { class: 'btn small', type: 'button', 'data-tip': `Copy the link to give students:\n${link}`, onclick: () => copyText(link) }, 'Copy link'),
+        h('button', { class: 'btn small ghost', type: 'button', 'data-tip': 'Copy the short code (students can paste it instead of the link)', onclick: () => copyText(a.code) }, 'Code'),
+        h('a', { class: 'btn small ghost', href: link, target: '_blank', rel: 'noopener', 'data-tip': 'Open the student page for this assignment in a new tab' }, 'Try'),
         h('button', {
-          class: 'btn small ghost', type: 'button', onclick: () => {
-            if (!confirm(`Remove "${c.title}" from this browser? Submissions for it will show the config check as unknown until you import the code again.`)) return;
+          class: 'btn small ghost', type: 'button', 'data-tip': 'Remove from this browser',
+          onclick: () => {
+            if (!confirm(`Remove "${c.title}" from this browser? You can import its code again later.`)) return;
             library = library.filter((x) => x !== a);
             saveLibrary(library);
             renderLibrary();
           },
         }, 'Remove')),
-      h('div', { class: 'small muted' }, pol, ` · config ${a.hash.slice(0, 12)}…`),
-      h('div', { class: 'codebox', style: 'margin-top:6px' }, link)));
+      h('div', { class: 'small muted' }, pol)));
   }
 }
 
 // thresholds form
 const thBox = $('#f-thresholds');
 for (const [k, v] of Object.entries(DEFAULT_THRESHOLDS)) {
-  thBox.append(h('label', { for: `th-${k}` }, THRESHOLD_LABELS[k] || k), h('input', { type: 'number', id: `th-${k}`, value: v, step: 'any', min: 0 }));
+  thBox.append(h('label', { for: `th-${k}` }, THRESHOLD_LABELS[k] || k), h('input', { type: 'number', id: `th-${k}`, value: v, step: 'any', min: 0, 'data-tip': `Default: ${v}` }));
 }
 
 $('#new-form').addEventListener('submit', async (ev) => {
@@ -100,7 +108,7 @@ $('#new-form').addEventListener('submit', async (ev) => {
   renderLibrary();
   $('#new-form').reset();
   for (const [k, v] of Object.entries(DEFAULT_THRESHOLDS)) $(`#th-${k}`).value = v;
-  toast(`Created "${config.title}". Share the student link.`);
+  toast(`Created "${config.title}". Use Copy link to share it with students.`);
   reanalyze();
 });
 
@@ -196,34 +204,52 @@ function renderGroups() {
       const F = finalized(item);
       const fails = F.integrity.filter((c) => c.status === 'fail').length;
       const warns = F.integrity.filter((c) => c.status !== 'pass' && c.status !== 'fail').length;
-      return h('tr', { class: 'clickable', tabindex: '0', onclick: () => openDetail(item), onkeydown: (e) => e.key === 'Enter' && openDetail(item) },
+      const integrityTip = F.integrity.filter((c) => c.status !== 'pass').map((c) => `${c.label}: ${c.detail}`).join('\n') || 'All integrity checks passed';
+      return h('tr', { class: 'clickable', tabindex: '0', onclick: () => openDetail(item, 'overview'), onkeydown: (e) => e.key === 'Enter' && openDetail(item, 'overview') },
         h('td', null, h('strong', null, F.header.student_label || '(no label)'), h('div', { class: 'small muted' }, item.name)),
         h('td', null, countWords(F.file.final.text).toLocaleString()),
         h('td', null, F.sessions.length),
         h('td', null, fmtDuration(F.raw.active)),
-        h('td', null, fails ? h('span', { class: 'pill bad' }, `${fails} failed`) : warns ? h('span', { class: 'pill warn' }, `Pass · ${warns} to check`) : h('span', { class: 'pill ok' }, 'All pass')),
-        h('td', null, F.flags.length ? h('div', { class: 'chips' }, [...new Set(F.flags.map((f) => f.title))].map((t) => h('span', { class: `pill ${t === 'Integrity failure' ? 'bad' : 'warn'}` }, t))) : h('span', { class: 'muted small' }, 'None')),
-        h('td', null, F.prompts.length));
+        h('td', null, h('span', { 'data-tip': integrityTip },
+          fails ? h('span', { class: 'pill bad' }, `${fails} failed`) : warns ? h('span', { class: 'pill warn' }, 'Passed*') : h('span', { class: 'pill ok' }, 'Passed'))),
+        h('td', null, F.flags.length ? h('div', { class: 'chips' }, [...new Set(F.flags.map((f) => f.title))].map((t) => h('span', { class: `pill ${t === 'Integrity failure' ? 'bad' : 'warn'}` }, t))) : h('span', { class: 'muted small' }, '—')),
+        h('td', { class: 'row-actions' }, h('button', {
+          class: 'btn small', type: 'button', 'data-tip': 'Read the submitted document', html: `${ICONS.doc}<span>Read</span>`,
+          onclick: (e) => {
+            e.stopPropagation();
+            openDetail(item, 'document');
+          },
+        })));
     });
+    const classOn = items.length >= min;
     box.append(h('div', { class: 'card', style: 'margin-bottom:16px' },
       h('div', { class: 'section-head' },
         h('div', null,
           h('h2', null, cfg.title),
           h('div', { class: 'small muted' },
-            known.has(hash) ? 'Matches one of your assignments' : 'Not in your assignments: import its code to verify the config',
-            ` · ${items.length} submission${items.length === 1 ? '' : 's'} · class-relative flags ${items.length >= min ? 'on' : `off (need ${min})`}`))),
+            `${items.length} submission${items.length === 1 ? '' : 's'}`,
+            !known.has(hash) && h('span', { class: 'warn-text', 'data-tip': 'Import this assignment’s code under Assignments so the files can be checked against it.' }, ' · not in your assignments'),
+            h('span', { 'data-tip': `The “too fast” and “machine-regular rhythm” flags compare students with each other, so they need at least ${min} submissions.` },
+              classOn ? ' · class comparisons on' : ` · class comparisons need ${min}`)))),
       h('div', { class: 'table-wrap' }, h('table', null,
-        h('thead', null, h('tr', null, ['Student', 'Words', 'Sessions', 'Active', 'Integrity', 'Flags', 'Prompts'].map((t) => h('th', null, t)))),
-        h('tbody', null, rows))),
-      h('p', { class: 'small muted', style: 'margin:10px 0 0' }, 'Listed alphabetically. There is no ranking and no composite score.')));
+        h('thead', null, h('tr', null,
+          h('th', null, 'Student'), h('th', null, 'Words'),
+          h('th', { 'data-tip': 'Separate sittings' }, 'Sessions'),
+          h('th', { 'data-tip': 'Writing time, not counting breaks over 5 minutes' }, 'Time'),
+          h('th', { 'data-tip': 'Whether the file is intact and was written in Draftwork' }, 'Integrity'),
+          h('th', { 'data-tip': 'Moments worth asking about' }, 'Flags'),
+          h('th', null, ''))),
+        h('tbody', null, rows)))));
   }
 }
 
-function openDetail(item) {
+let currentTab = 'overview';
+function openDetail(item, tab = currentTab) {
   current = item;
+  currentTab = tab;
   $('#review-list').classList.add('hidden');
   $('#review-detail').classList.remove('hidden');
-  renderReport($('#report'), finalized(item), { mode: 'instructor' });
+  renderReport($('#report'), finalized(item), { mode: 'instructor', tab, onTab: (t) => (currentTab = t) });
   const group = groupsOf().get(item.A.cfgHash);
   const k = group.indexOf(item);
   $('#prev').disabled = k <= 0;

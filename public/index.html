@@ -4,39 +4,35 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Draftwork</title>
+  <script>try{var a=JSON.parse(localStorage.getItem('draftwork.appearance')||'{}');if(a.theme&&a.theme!=='system')document.documentElement.dataset.theme=a.theme;if(a.size&&a.size!=='normal')document.documentElement.dataset.size=a.size}catch(e){}</script>
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="./" id="brand">Draftwork</a>
+    <span class="spacer"></span>
+    <span class="appearance-slot"></span>
   </header>
-  <main class="page">
-    <section class="hero">
-      <h1>Draftwork</h1>
-      <p>Records how a take-home piece of writing was produced, so an instructor can replay it and ask about it. It does not try to prove authorship; it makes faking authorship cost more than doing the work.</p>
-    </section>
+  <main class="page narrow">
+    <h1 class="home-title">Draftwork</h1>
     <div class="choices">
       <a class="card choice" href="student.html">
-        <h2>I’m writing</h2>
-        <p class="muted">Open the assignment link from your instructor, write in the sandbox, then save the <code>.draftwork</code> file and upload it to your LMS. You can preview exactly what your instructor will see.</p>
+        <h2>Write</h2>
+        <p class="muted">Open an assignment from your instructor.</p>
       </a>
       <a class="card choice" href="instructor.html">
-        <h2>I’m teaching</h2>
-        <p class="muted">Create an assignment link, then open your class’s <code>.draftwork</code> files to replay them: integrity checks, flags with their benign readings, process signals, and 3–5 questions for a five-minute check-in.</p>
+        <h2>Review</h2>
+        <p class="muted">Create assignments and read submissions.</p>
       </a>
     </div>
-    <div class="principles">
-      <div><strong>Process, not product</strong><span class="muted">The full edit history must regenerate the text exactly.</span></div>
-      <div><strong>No institutional backend</strong><span class="muted">The file lives on the student’s computer; only checkpoint hashes are sent, for timestamping.</span></div>
-      <div><strong>Flags, never scores</strong><span class="muted">Each flag stands alone with its benign readings beside it.</span></div>
-      <div><strong>The conversation is the enforcement</strong><span class="muted">The viewer surfaces specific moments to ask about.</span></div>
-      <div><strong>The student sees what the instructor sees</strong><span class="muted">Flags included, before submitting.</span></div>
-    </div>
-    <footer class="policy-footer">A process pattern can only ever lead to a conversation, never directly to a penalty.</footer>
   </main>
   <script type="module">
     import { $, LOGO } from './js/ui/dom.js';
+    import { appearanceButton } from './js/ui/appearance.js';
+    import { initTooltips } from './js/ui/tooltip.js';
+    initTooltips();
     $('#brand').insertAdjacentHTML('afterbegin', LOGO);
+    $('.appearance-slot').append(appearanceButton());
   </script>
 </body>
 </html>

@@ -152,6 +152,11 @@ function composer(sim, r, paras, { speed = 1, sessions = 2, revise = 0.25, quote
     sim.ev({ k: 'paste_src', pane: 'src', p: 0, x: q + '\n', it: 'insertFromPaste' });
     sim.quote = q;
   }
+  // a title, styled as one
+  sim.wait(r.range(5_000, 20_000));
+  sim.type(r.pick(['Cities and Memory', 'What the River Remembers', 'Streets as Archives', 'The Shape of a Place']), typing);
+  sim.ev({ k: 'para', a: 0, b: 1, set: { s: 'title' }, it: 'formatStyle' });
+  sim.type('\n', typing);
   paras.forEach((para, pi) => {
     if (pi > 0 && pi % sessionBreak === 0 && sessions > 1 && pi / sessionBreak < sessions) {
       sim.end();
@@ -181,6 +186,12 @@ function composer(sim, r, paras, { speed = 1, sessions = 2, revise = 0.25, quote
         }
       }
       sim.type(body, typing);
+      // now and then, italicize a phrase just written
+      const m = body.match(/(the [a-z]+ [a-z]+)/);
+      if (m && r.chance(0.15)) {
+        sim.wait(r.range(1500, 4000));
+        sim.ev({ k: 'fmt', p: sim.cursor - body.length + m.index, n: m[1].length, set: 2, it: 'formatMark' });
+      }
       sim.wait(r.chance(0.7) ? r.range(2200, 12_000) : r.range(300, 1500));
       if (r.chance(0.06)) sim.blur(r.range(5_000, 60_000));
     });

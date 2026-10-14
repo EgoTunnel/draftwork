@@ -5,6 +5,8 @@
   "description": "Records how a piece of writing was produced so an instructor can replay it and ask about it.",
   "type": "module",
   "scripts": {
+    "launch": "node launch.js",
+    "launch:demo": "node launch.js --mock-tsa --demo --page instructor",
     "start": "node server.js",
     "start:mock": "node server.js --mock-tsa",
     "simulate": "node tools/simulate.js",

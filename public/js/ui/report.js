@@ -1,31 +1,37 @@
-// The replay viewer: integrity checks, flags, process signals and conversation prompts, with a scrubbable replay.
-import { h, s, escapeHtml, copyText } from './dom.js';
+// The submission viewer: an Overview (integrity, flags, writing process, questions, replay)
+// and a Document tab showing the submitted text as the student formatted it.
+import { h, s, toast } from './dom.js';
 import { productionGraph, indexAtClock } from './graph.js';
 import { stateAt, fmtClock, fmtDuration, POLICY_FOOTER } from '../core/analysis.js';
-import { countWords } from '../core/format.js';
+import { countWords, finalDoc } from '../core/format.js';
+import { paragraphParts, docStyleCss, toPlainText, toClipboardHtml } from '../core/export.js';
+import { documentPage, downloadDocx, downloadTxt, printDoc } from './docui.js';
+import { ICONS } from './icons.js';
 
 const STATUS_MARK = { pass: '✓', fail: '✕', warn: '!', unknown: '?' };
-const STATUS_TEXT = { pass: 'Pass', fail: 'Fail', warn: 'Check', unknown: 'Unknown' };
+const STATUS_TEXT = { pass: 'Passed', fail: 'Failed', warn: 'Passed, with a note', unknown: 'Could not check' };
 const SPEEDS = [1, 4, 16, 64, 256];
 
 function describeEvent(e) {
   const q = (x) => JSON.stringify(x.length > 60 ? x.slice(0, 60) + '…' : x);
   const x = e.x || '';
-  const where = e.pane === 'src' ? ' in sources pane' : '';
+  const where = e.pane === 'src' ? ' (sources)' : '';
   switch (e.k) {
-    case 'ins': return `inserted ${q(x)}${where} · ${e.it || ''}`;
-    case 'del': return `deleted ${e.n} char${e.n === 1 ? '' : 's'}${where} · ${e.it || ''}`;
-    case 'rep': return `replaced ${e.n} char${e.n === 1 ? '' : 's'} with ${q(x)}${where} · ${e.it || ''}`;
-    case 'paste_in': return `pasted ${x.length} chars ${e.from === 'src' ? 'from the sources pane' : 'copied inside this document'}`;
-    case 'paste_src': return `pasted ${x.length} chars into the sources pane`;
-    case 'paste_blocked': return `external paste of ${e.len} chars refused by policy`;
-    case 'ime': return `composed ${q(x)} (IME / dictation)`;
-    case 'move': return `cursor jumped from ${e.from} to ${e.p}${where}`;
-    case 'blur': return 'left the window';
-    case 'focus': return 'came back to the window';
-    case 'session_start': return `session started ${new Date(e.w).toLocaleString()}`;
-    case 'session_end': return 'session ended';
-    case 'untrusted': return `script-generated input refused (${e.it || 'unknown'})`;
+    case 'ins': return `Typed ${q(x)}${where}`;
+    case 'del': return `Deleted ${e.n} character${e.n === 1 ? '' : 's'}${where}`;
+    case 'rep': return `Replaced ${e.n} character${e.n === 1 ? '' : 's'} with ${q(x)}${where}`;
+    case 'paste_in': return e.from === 'src' ? `Pasted ${x.length} characters from sources` : `Moved or pasted ${x.length} of their own characters`;
+    case 'paste_src': return `Pasted ${x.length} characters into sources`;
+    case 'paste_blocked': return `Tried to paste ${e.len} characters from outside (blocked)`;
+    case 'ime': return `Entered ${q(x)} by dictation or input method`;
+    case 'move': return 'Moved the cursor';
+    case 'blur': return 'Left the window';
+    case 'focus': return 'Came back to the window';
+    case 'session_start': return `Started writing, ${new Date(e.w).toLocaleString()}`;
+    case 'session_end': return 'Stopped writing';
+    case 'untrusted': return 'A script tried to change the text (refused)';
+    case 'fmt': return 'Changed text formatting';
+    case 'para': return 'Changed paragraph formatting';
     default: return e.k;
   }
 }
@@ -37,165 +43,193 @@ function strip(values, me, priors, fmt) {
   const hi = Math.max(...all);
   const W = 140;
   const x = (v) => 6 + (hi > lo ? (v - lo) / (hi - lo) : 0.5) * (W - 12);
-  const svg = s('svg', { class: 'strip', width: W, height: 22, viewBox: `0 0 ${W} 22`, role: 'img', 'aria-label': `Class distribution, this file at ${fmt(me)}` });
+  const svg = s('svg', { class: 'strip', width: W, height: 22, viewBox: `0 0 ${W} 22`, role: 'img', 'aria-label': `This file ${fmt(me)} among ${values.length} in the class` });
   svg.append(s('line', { x1: 6, x2: W - 6, y1: 11, y2: 11, stroke: 'var(--border)' }));
   for (const v of values) svg.append(s('circle', { class: 'd', cx: x(v), cy: 11, r: 3 }));
-  for (const p of priors) if (Number.isFinite(p.value)) svg.append(s('circle', { class: 'prior', cx: x(p.value), cy: 11, r: 5 }, s('title', {}, `${p.title}: ${fmt(p.value)}`)));
-  svg.append(s('circle', { class: 'me', cx: x(me), cy: 11, r: 4.5 }, s('title', {}, `This file: ${fmt(me)}`)));
+  for (const p of priors) if (Number.isFinite(p.value)) svg.append(s('circle', { class: 'prior', cx: x(p.value), cy: 11, r: 5 }));
+  svg.append(s('circle', { class: 'me', cx: x(me), cy: 11, r: 4.5 }));
   const below = values.filter((v) => v < me).length;
-  return h('div', null, svg, h('div', { class: 'small muted' }, `${Math.round((below / values.length) * 100)}th pct · n=${values.length}`));
+  const tip = `Dots: the ${values.length} submissions for this assignment. Filled blue: this file (${fmt(me)}).` +
+    (priors.length ? ' Orange ring: this student’s earlier work.' : '');
+  return h('div', { 'data-tip': tip }, svg, h('div', { class: 'small muted' }, `${Math.round((below / values.length) * 100)}th percentile`));
 }
 
-export function renderReport(root, F, { mode = 'instructor' } = {}) {
+function sectionHead(title, tip, right) {
+  return h('div', { class: 'section-head' },
+    h('h2', null, title, tip ? h('span', { class: 'info', tabindex: '0', 'data-tip': tip, 'aria-label': tip, html: ICONS.info }) : null),
+    right || null);
+}
+
+async function copyDoc(doc) {
+  const text = toPlainText(doc);
+  try {
+    if (window.ClipboardItem) {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/plain': new Blob([text], { type: 'text/plain' }),
+        'text/html': new Blob([toClipboardHtml(doc, 0, doc.text.length)], { type: 'text/html' }),
+      })]);
+    } else await navigator.clipboard.writeText(text);
+    toast('Copied the document');
+  } catch {
+    toast('Copy failed. Select the text and press Ctrl+C.');
+  }
+}
+
+export function renderReport(root, F, { mode = 'instructor', tab = 'overview', onTab = null } = {}) {
   root.innerHTML = '';
   const N = F.events.length;
   const tl = F.tl;
   const words = countWords(F.file.final.text);
   const elapsed = N ? tl.abs[N - 1] - tl.abs[0] : 0;
   const header = F.header;
+  const style = header.doc_style;
   let seek = () => {};
 
-  const moment = (i, label) => h('button', { class: 'btn small', type: 'button', onclick: () => seek(i, true) }, '▶ ', label);
+  const moment = (i, label) => h('button', { class: 'btn small', type: 'button', 'data-tip': 'Show this moment in the replay', onclick: () => seek(i, true) }, '▶ ', label);
 
   // ---------- head ----------
   const failing = F.integrity.filter((c) => c.status === 'fail').length;
+  const passing = F.integrity.filter((c) => c.status === 'pass').length;
   const head = h('div', { class: 'rp-head' },
-    h('div', { class: 'layer-label' }, F.config.title),
-    h('h1', null, header.student_label || 'Unlabelled submission'),
+    h('div', { class: 'eyebrow' }, F.config.title),
+    h('h1', null, header.student_label || 'Unnamed submission'),
     h('div', { class: 'rp-stats' },
       h('span', null, `${words.toLocaleString()} words`),
-      h('span', null, `${fmtDuration(F.raw.active)} active writing`),
-      h('span', null, `${F.sessions.length} session${F.sessions.length === 1 ? '' : 's'} over ${fmtDuration(elapsed)}`),
-      h('span', null, `${N.toLocaleString()} events`),
-      F.sessions[0] && h('span', null, `started ${new Date(F.sessions[0].wall).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`),
-      header.dictation_mode && h('span', { class: 'pill accent' }, 'Dictation mode'),
-    ),
-    h('div', { class: 'rp-glance' },
-      h('a', { href: '#layer-integrity', class: `pill ${failing ? 'bad' : F.integrity.some((c) => c.status !== 'pass') ? 'warn' : 'ok'}` },
-        h('span', { class: 'dot' }), failing ? `${failing} integrity check${failing === 1 ? '' : 's'} failed` : `Integrity ${F.integrity.filter((c) => c.status === 'pass').length}/${F.integrity.length} pass`),
-      h('a', { href: '#layer-flags', class: `pill ${F.flags.length ? 'warn' : ''}` }, `${F.flags.length} flag${F.flags.length === 1 ? '' : 's'}`),
-      h('a', { href: '#layer-prompts', class: 'pill accent' }, `${F.prompts.length} conversation prompt${F.prompts.length === 1 ? '' : 's'}`),
+      h('span', { 'data-tip': 'Time spent writing, not counting breaks longer than 5 minutes' }, `${fmtDuration(F.raw.active)} writing`),
+      h('span', { 'data-tip': 'Each time the student opened the document to write' }, `${F.sessions.length} session${F.sessions.length === 1 ? '' : 's'}${F.sessions.length > 1 ? ` over ${fmtDuration(elapsed)}` : ''}`),
+      F.sessions[0] && h('span', null, new Date(F.sessions[0].wall).toLocaleDateString(undefined, { dateStyle: 'medium' })),
+      header.dictation_mode && h('span', { class: 'pill accent', 'data-tip': 'The student said they used dictation' }, 'Dictation'),
     ),
     (header.process_notes || (header.attachments || []).length > 0) && h('div', { class: 'rp-notes' },
-      h('div', { class: 'layer-label' }, 'Student’s process notes'),
+      h('div', { class: 'eyebrow' }, 'Student’s notes'),
       header.process_notes && h('div', null, header.process_notes),
-      (header.attachments || []).map((a) => h('div', { class: 'small muted' },
-        `Outline attached: ${a.filename} (image not stored; SHA-256 ${a.sha256.slice(0, 16)}…, added ${new Date(a.added).toLocaleDateString()})`)),
-    ),
+      (header.attachments || []).map((a) => h('div', { class: 'small muted', 'data-tip': `Only the name and fingerprint were kept (SHA-256 ${a.sha256.slice(0, 16)}…), not the file.` },
+        `Attached: ${a.filename}`))),
   );
 
-  const banner = mode === 'student' && h('div', { class: 'notice info', style: 'margin-bottom:16px' },
-    h('strong', null, 'This is what your instructor will see. '),
-    'Class comparisons and the two class-relative flags (too fast for the length, machine-regular rhythm) appear only when your instructor opens the whole class. ',
-    'Nothing here is a score: a pattern can only lead to a conversation.');
+  const banner = mode === 'student' && h('div', { class: 'notice info', style: 'margin-bottom:16px', 'data-tip': 'Class comparisons appear when your instructor opens the whole class.' },
+    'This is how your instructor will see your work.');
 
-  // ---------- layer 1 ----------
+  // ---------- tabs ----------
+  const tabs = h('div', { class: 'tabs', role: 'tablist' });
+  const panels = {};
+  const tabBtns = {};
+  const select = (name) => {
+    for (const [k, b] of Object.entries(tabBtns)) {
+      b.setAttribute('aria-selected', String(k === name));
+      panels[k].classList.toggle('hidden', k !== name);
+    }
+    if (name !== 'overview') stop();
+    if (onTab) onTab(name);
+  };
+  for (const [k, label, tip] of [
+    ['overview', 'Overview', 'Checks, flags, the writing process and questions to ask'],
+    ['document', 'Document', 'The submitted document, as the student formatted it'],
+  ]) {
+    tabBtns[k] = h('button', { class: 'tab', role: 'tab', type: 'button', 'data-tip': tip, onclick: () => select(k) }, label);
+    tabs.append(tabBtns[k]);
+  }
+  tabs.append(h('span', { class: 'spacer' }),
+    h('span', { class: `pill ${failing ? 'bad' : F.integrity.some((c) => c.status !== 'pass') ? 'warn' : 'ok'}`, 'data-tip': 'Integrity checks passed' },
+      failing ? `${failing} check${failing === 1 ? '' : 's'} failed` : `${passing}/${F.integrity.length} checks`),
+    h('span', { class: `pill ${F.flags.length ? 'warn' : ''}` }, `${F.flags.length} flag${F.flags.length === 1 ? '' : 's'}`));
+
+  // ---------- overview: integrity ----------
   const l1 = h('section', { class: 'card', id: 'layer-integrity' },
-    h('div', { class: 'section-head' },
-      h('div', null, h('div', { class: 'layer-label' }, 'Layer 1'), h('h2', null, 'Integrity checks')),
-      h('span', { class: 'small muted' }, 'Pass or fail. A failure means the file was altered or built outside the app.')),
+    sectionHead('Integrity', 'Pass/fail checks that the file wasn’t altered and was written in Draftwork. A failure means the file was changed or built outside the app.'),
     h('ul', { class: 'checks' }, F.integrity.map((c) => h('li', null,
-      h('span', { class: `mark ${c.status}`, title: STATUS_TEXT[c.status] }, STATUS_MARK[c.status]),
-      h('span', null, c.label),
+      h('span', { class: `mark ${c.status}`, 'aria-label': STATUS_TEXT[c.status], 'data-tip': STATUS_TEXT[c.status] }, STATUS_MARK[c.status]),
+      h('span', { 'data-tip': c.tip || null }, c.label),
       h('span', { class: 'detail' }, c.detail)))),
   );
 
-  // ---------- layer 2 ----------
+  // ---------- overview: flags ----------
   const l2 = h('section', { class: 'card', id: 'layer-flags' },
-    h('div', { class: 'section-head' },
-      h('div', null, h('div', { class: 'layer-label' }, 'Layer 2'), h('h2', null, 'Flags')),
-      h('span', { class: 'small muted' }, 'Each stands alone. They are never combined into a score.')),
+    sectionHead('Flags', 'Unusual moments, or ones that match a known misuse pattern. Each is listed on its own with innocent explanations. A flag is a reason to ask, not a finding.'),
     F.flags.length
       ? F.flags.map((f) => h('div', { class: `flag ${f.kind}` },
-        h('h3', null, f.title, h('span', { class: `pill ${f.kind === 'integrity' ? 'bad' : 'warn'}` }, f.kind === 'integrity' ? 'Integrity' : 'Pattern')),
+        h('h3', null, f.title, h('span', { class: `pill ${f.kind === 'integrity' ? 'bad' : 'warn'}`, 'data-tip': f.kind === 'integrity' ? 'The file was altered or produced outside Draftwork' : 'A writing pattern worth a conversation' }, f.kind === 'integrity' ? 'Integrity' : 'Pattern')),
         h('div', null, f.reason),
         f.moments.length ? h('div', { class: 'moments' }, f.moments.map((m) => moment(m.i, m.label))) : null,
-        h('div', { class: 'benign' },
-          h('strong', null, f.kind === 'integrity' ? 'Before concluding anything' : 'Benign readings'),
+        h('details', { class: 'benign', open: true },
+          h('summary', null, f.kind === 'integrity' ? 'Before concluding anything' : 'Possible innocent explanations'),
           h('ul', null, f.benign.map((b) => h('li', null, b)),
             f.kind === 'pattern' && header.process_notes ? h('li', null, h('em', null, `Student’s note: “${header.process_notes}”`)) : null)),
       ))
-      : h('p', { class: 'empty-state' }, 'No flags. Nothing unusual and nothing matching a known misuse pattern.'),
-    !F.classOn && h('p', { class: 'small muted', style: 'margin-top:10px' },
-      `Class-relative flags (too fast for the length, machine-regular rhythm) switch on at ${F.T.min_class_size} submissions for this assignment; ${F.cohortSize} loaded.`),
+      : h('p', { class: 'empty-state' }, 'No flags.'),
+    !F.classOn && h('p', { class: 'small muted', style: 'margin:10px 0 0', 'data-tip': 'The “too fast” and “machine-regular rhythm” flags compare against the class, so they need enough submissions.' },
+      `Class comparison flags: ${F.cohortSize} of ${F.T.min_class_size} submissions loaded.`),
   );
 
-  // ---------- layer 3 ----------
+  // ---------- overview: writing process ----------
   const markers = [
     ...F.flags.flatMap((f) => f.moments.map((m) => ({ i: m.i, kind: 'flag', label: `${f.title}: ${m.label}` }))),
-    ...F.prompts.map((p, k) => ({ i: p.i, kind: 'prompt', label: `Prompt ${k + 1}: ${p.title}` })),
+    ...F.prompts.map((p, k) => ({ i: p.i, kind: 'prompt', label: `Question ${k + 1}: ${p.title}` })),
   ];
   const graph = productionGraph(F, { onSeek: (i) => seek(i, false), markers });
   const statsById = Object.fromEntries((F.classStats || []).map((c) => [c.id, c]));
-  const hasPriors = (F.classStats || []).some((c) => c.priors.length);
   const l3 = h('section', { class: 'card', id: 'layer-signals' },
-    h('div', { class: 'section-head' },
-      h('div', null, h('div', { class: 'layer-label' }, 'Layer 3'), h('h2', null, 'Process signals')),
-      h('span', { class: 'small muted' }, 'Observations, not verdicts.')),
-    h('p', { class: 'small muted' },
-      'In composed writing the lines separate: typed exceeds length because of deletions, and the cursor drops whenever the writer goes back. In transcribed writing the three lines run almost on top of one another.'),
+    sectionHead('Writing process', 'How the text was produced over time. In composed writing the three lines separate: total typed runs above length because of deletions, and the cursor drops when the writer goes back. When text is copied in, they run almost together.'),
     graph.el,
     h('div', { class: 'table-wrap', style: 'margin-top:16px' },
       h('table', { class: 'signals' },
-        h('thead', null, h('tr', null,
-          h('th', null, 'Signal'), h('th', null, 'This file'), h('th', null, hasPriors ? 'Class · own earlier work' : 'Class'))),
+        h('thead', null, h('tr', null, h('th', null, 'Signal'), h('th', null, 'This file'), h('th', { 'data-tip': 'Compared with the other submissions for this assignment, and the student’s own earlier work when loaded' }, 'Class'))),
         h('tbody', null, F.signals.map((sg) => {
           const cs = statsById[sg.id] || { values: [], priors: [] };
           const fmt = sg.fmt || ((v) => (Number.isFinite(v) ? v.toFixed(1) : '—'));
+          const tip = `${sg.measures}. Copying tends to look like: ${sg.transcription.toLowerCase()}. Innocent explanations: ${sg.benign.toLowerCase()}.`;
           return h('tr', null,
-            h('td', null, sg.name, h('div', { class: 'small muted', style: 'font-weight:400;white-space:normal' }, sg.measures)),
+            h('td', null, h('span', { class: 'has-tip', tabindex: '0', 'data-tip': tip }, sg.name)),
             h('td', { class: 'val' },
-              h('div', { class: sg.watch ? 'watch' : '' }, sg.value),
-              sg.moments && sg.moments.length ? h('div', { class: 'moments' }, sg.moments.slice(0, 6).map((i) => moment(i, fmtClock(tl.clock[i])))) : null,
-              h('div', { class: 'small muted', style: 'margin-top:4px' }, h('em', null, 'Transcription tends to look like: '), sg.transcription),
-              h('div', { class: 'small muted' }, h('em', null, 'Benign explanations: '), sg.benign)),
+              h('div', { class: sg.watch ? 'watch' : '', 'data-tip': sg.watch ? `In the range copied text tends to show: ${sg.transcription.toLowerCase()}` : null }, sg.value),
+              sg.moments && sg.moments.length ? h('div', { class: 'moments' }, sg.moments.slice(0, 6).map((i) => moment(i, fmtClock(tl.clock[i])))) : null),
             h('td', null,
-              strip(cs.values, sg.metric, cs.priors, fmt) || h('span', { class: 'muted small' }, 'Open the class to compare'),
+              strip(cs.values, sg.metric, cs.priors, fmt) || h('span', { class: 'muted small' }, '—'),
               cs.priors.map((p) => h('div', { class: 'small' }, `${p.title}: `, h('strong', null, fmt(p.value))))),
           );
         })))),
-    h('p', { class: 'small muted', style: 'margin-top:8px' },
-      'Thresholds are illustrative starting points to calibrate on real data, not validated cutoffs. Comparisons are only ever against this class and the student’s own earlier files, never a fixed population norm.'),
   );
 
-  // ---------- layer 4 ----------
+  // ---------- overview: questions ----------
   const l4 = h('section', { class: 'card', id: 'layer-prompts' },
-    h('div', { class: 'section-head' },
-      h('div', null, h('div', { class: 'layer-label' }, 'Layer 4'), h('h2', null, 'Conversation prompts')),
-      F.prompts.length ? h('button', { class: 'btn small', type: 'button', onclick: () => copyText(F.prompts.map((p, k) => `${k + 1}. ${p.question}`).join('\n')) }, 'Copy questions') : null),
-    h('p', { class: 'small muted' }, 'A student who wrote the piece answers these in seconds. Flagged moments come first.'),
+    sectionHead('Questions to ask', 'Specific moments to ask the student about in a short check-in. Flagged moments come first.',
+      F.prompts.length ? h('button', {
+        class: 'btn small', type: 'button', 'data-tip': 'Copy all questions as a numbered list',
+        onclick: () => navigator.clipboard.writeText(F.prompts.map((p, k) => `${k + 1}. ${p.question}`).join('\n')).then(() => toast('Copied'), () => toast('Copy failed')),
+      }, 'Copy') : null),
     F.prompts.length
       ? h('ol', { class: 'prompts' }, F.prompts.map((p) => h('li', null,
-        h('div', { class: 'row' }, h('span', { class: `pill ${p.flagged ? 'warn' : 'accent'}` }, p.title)),
+        h('div', null, h('span', { class: `pill ${p.flagged ? 'warn' : 'accent'}` }, p.title)),
         h('div', { class: 'q' }, p.question),
-        moment(p.i, `Jump to ${fmtClock(tl.clock[p.i])}`))))
-      : h('p', { class: 'empty-state' }, 'Not enough activity to pick moments yet.'),
+        moment(p.i, `Show at ${fmtClock(tl.clock[p.i])}`))))
+      : h('p', { class: 'empty-state' }, 'Not enough writing yet to suggest questions.'),
   );
 
-  // ---------- replay ----------
-  const doc = h('div', { class: 'replay-doc', tabindex: '0', 'aria-label': 'Document at the selected moment' });
+  // ---------- overview: replay ----------
+  const doc = h('div', { class: 'replay-doc', tabindex: '0', 'aria-label': 'The document at the selected moment' });
   const meta = h('div', { class: 'replay-meta' });
   const evLine = h('div', { class: 'replay-event' });
   const range = h('input', { type: 'range', min: 0, max: Math.max(0, N - 1), value: Math.max(0, N - 1), 'aria-label': 'Replay position' });
   const ticks = h('div', { class: 'ticks' }, markers.map((m) => h('button', {
-    class: `tick ${m.kind}`, type: 'button', title: m.label, 'aria-label': m.label,
+    class: `tick ${m.kind}`, type: 'button', 'data-tip': m.label, 'aria-label': m.label,
     style: `left:${N > 1 ? (m.i / (N - 1)) * 100 : 0}%`, onclick: () => seek(m.i, false),
   })));
-  const playBtn = h('button', { class: 'btn small primary', type: 'button' }, '▶ Play');
-  const speedSel = h('select', { 'aria-label': 'Playback speed' }, SPEEDS.map((v) => h('option', { value: v, selected: v === 16 }, `${v}×`)));
-  const srcToggle = F.replaySrc ? h('label', { class: 'check small', style: 'margin:0' }, h('input', { type: 'checkbox' }), 'Show sources pane') : null;
+  const playBtn = h('button', { class: 'btn small primary', type: 'button', 'data-tip': 'Play back the writing (long breaks are skipped)' }, '▶ Play');
+  const speedSel = h('select', { 'aria-label': 'Playback speed', 'data-tip': 'Playback speed' }, SPEEDS.map((v) => h('option', { value: v, selected: v === 16 }, `${v}×`)));
+  const srcToggle = F.replaySrc ? h('label', { class: 'check small', style: 'margin:0', 'data-tip': 'Show what the student pasted into the sources panel' }, h('input', { type: 'checkbox' }), 'Sources') : null;
   const aside = h('aside', { class: 'replay card', id: 'replay' },
-    h('div', { class: 'section-head' }, h('h2', null, 'Replay'), h('span', { class: 'small muted' }, 'Recent changes highlighted')),
+    sectionHead('Replay', 'Scrub or play through the writing. The latest changes are highlighted; deleted text shows struck through for a moment.'),
     doc, meta,
     h('div', { class: 'scrub' }, range, ticks),
     h('div', { class: 'replay-controls' },
       playBtn, speedSel,
-      h('button', { class: 'btn small', type: 'button', title: 'Previous event', onclick: () => seek(idx - 1, false) }, '◀'),
-      h('button', { class: 'btn small', type: 'button', title: 'Next event', onclick: () => seek(idx + 1, false) }, '▶'),
+      h('button', { class: 'btn small', type: 'button', 'data-tip': 'Previous event', 'aria-label': 'Previous event', onclick: () => seek(idx - 1, false) }, '◀'),
+      h('button', { class: 'btn small', type: 'button', 'data-tip': 'Next event', 'aria-label': 'Next event', onclick: () => seek(idx + 1, false) }, '▶'),
       srcToggle),
     evLine,
   );
 
+  const replayStyle = `${docStyleCss(style)};--doc-size:10.5pt`.replace(/"/g, '&quot;');
   let idx = Math.max(0, N - 1);
   let showSrc = false;
   function render(i) {
@@ -206,53 +240,46 @@ export function renderReport(root, F, { mode = 'instructor' } = {}) {
     idx = Math.max(0, Math.min(N - 1, i));
     const e = F.events[idx];
     const st = stateAt(F, idx, idx - 40);
-    let html = '';
     if (showSrc) {
-      html = `<div class="layer-label">Sources pane</div>${escapeHtml(st.src) || '<span class="muted">(empty)</span>'}`;
+      doc.innerHTML = '';
+      doc.append(h('div', { class: 'eyebrow' }, 'Sources'), h('div', { style: 'white-space:pre-wrap' }, st.src || '(empty)'));
     } else {
-      const caretPos = tl.cursor[idx];
-      let deletedHtml = '';
-      if (e.n && e.pane !== 'src') {
+      let caretHtml = '<span class="caret"></span>';
+      if (e.n && e.pane !== 'src' && (e.k === 'del' || e.k === 'rep' || e.k === 'paste_in' || e.k === 'ime')) {
         const before = stateAt(F, idx - 1, idx - 1).text;
-        deletedHtml = `<span class="deleted">${escapeHtml(before.slice(e.p, e.p + e.n))}</span>`;
+        const gone = before.slice(e.p, e.p + e.n).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+        caretHtml = `<span class="deleted">${gone}</span>${caretHtml}`;
       }
-      const text = st.text;
-      let j = 0;
-      while (j <= text.length) {
-        if (j === caretPos) html += (e.n && e.pane !== 'src' && e.p === j - (e.x || '').length ? deletedHtml : '') + '<span class="caret"></span>';
-        if (j === text.length) break;
-        const o = st.origin[j];
-        let k = j + 1;
-        while (k < text.length && st.origin[k] === o && k !== caretPos) k++;
-        const cls = o === idx ? 'r1' : o >= 0 && o > idx - 40 ? 'r' : '';
-        const chunk = escapeHtml(text.slice(j, k));
-        html += cls ? `<span class="${cls}">${chunk}</span>` : chunk;
-        j = k;
-      }
-      if (!text.length) html += '<span class="muted">(empty document)</span>';
+      const parts = paragraphParts(st.doc, {
+        charClass: (j) => {
+          const o = st.origin[j];
+          return o === idx ? 'r1' : o >= 0 && o > idx - 40 ? 'r' : '';
+        },
+        caret: tl.cursor[idx],
+        caretHtml,
+      });
+      doc.innerHTML = `<div class="doc" style="${replayStyle}">${parts.map((p) => `<div class="${p.cls}"${p.label ? ` data-label="${p.label}"` : ''}>${p.html}</div>`).join('')}</div>`;
+      if (!st.text.length) doc.firstChild.insertAdjacentHTML('beforeend', '<div class="muted">(empty page)</div>');
     }
-    doc.innerHTML = html;
     const caret = doc.querySelector('.caret');
     if (caret) {
       const top = caret.offsetTop - doc.offsetTop;
       if (top < doc.scrollTop + 20 || top > doc.scrollTop + doc.clientHeight - 40) doc.scrollTop = Math.max(0, top - doc.clientHeight / 3);
     }
-    const S = F.sessions[tl.session[idx]];
     meta.innerHTML = '';
     meta.append(
-      h('span', null, h('strong', null, fmtClock(tl.clock[idx])), ' writing time'),
-      h('span', null, new Date(tl.abs[idx]).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })),
-      h('span', null, `session ${tl.session[idx] + 1}/${F.sessions.length}`),
-      h('span', null, `event ${idx.toLocaleString()}/${(N - 1).toLocaleString()}`),
+      h('span', { 'data-tip': 'Writing time so far, not counting long breaks' }, h('strong', null, fmtClock(tl.clock[idx]))),
+      h('span', null, new Date(tl.abs[idx]).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' })),
+      F.sessions.length > 1 && h('span', null, `Session ${tl.session[idx] + 1} of ${F.sessions.length}`),
       h('span', null, `${countWords(st.text)} words`),
     );
     evLine.textContent = describeEvent(e);
     range.value = idx;
     graph.setPlayhead(idx);
-    void S;
   }
 
   seek = (i, scroll) => {
+    select('overview');
     stop();
     render(i);
     if (scroll && window.matchMedia('(max-width: 960px)').matches) aside.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -292,12 +319,28 @@ export function renderReport(root, F, { mode = 'instructor' } = {}) {
     render(idx);
   });
 
-  root.append(
-    banner || '',
-    head,
-    h('div', { class: 'rp-grid' }, h('div', { class: 'rp-main' }, l1, l2, l3, l4), aside),
-    h('footer', { class: 'policy-footer' }, POLICY_FOOTER),
+  panels.overview = h('div', { role: 'tabpanel' }, h('div', { class: 'rp-grid' }, h('div', { class: 'rp-main' }, l1, l2, l3, l4), aside));
+
+  // ---------- document tab ----------
+  const final = finalDoc(F.file);
+  const title = `${F.config.title} - ${header.student_label || 'submission'}`;
+  const text = final.text;
+  panels.document = h('div', { role: 'tabpanel', class: 'doc-view' },
+    h('div', { class: 'doc-toolbar' },
+      h('span', { class: 'muted small' },
+        `${words.toLocaleString()} words · ${text.replace(/\s/g, '').length.toLocaleString()} characters · ${text.split('\n').filter((l) => l.trim()).length} paragraphs`),
+      h('span', { class: 'spacer' }),
+      h('button', { class: 'btn small', type: 'button', 'data-tip': 'Copy the whole document, with formatting', onclick: () => copyDoc(final), html: `${ICONS.copy}<span>Copy</span>` }),
+      h('button', { class: 'btn small', type: 'button', 'data-tip': 'Download as a Word document', onclick: () => downloadDocx(final, style, title), html: `${ICONS.download}<span>Word</span>` }),
+      h('button', { class: 'btn small', type: 'button', 'data-tip': 'Download as plain text', onclick: () => downloadTxt(final, title), html: `${ICONS.download}<span>Text</span>` }),
+      h('button', { class: 'btn small', type: 'button', 'data-tip': 'Print the document', onclick: () => printDoc(final, style, title), html: `${ICONS.print}<span>Print</span>` }),
+    ),
+    h('div', { class: 'desk reader' }, documentPage(final, style)),
   );
+
+  root.append(banner || '', head, tabs, panels.overview, panels.document,
+    h('footer', { class: 'policy-footer' }, POLICY_FOOTER));
+  select(tab);
   render(idx);
-  return { seek, destroy: stop };
+  return { seek, destroy: stop, select };
 }

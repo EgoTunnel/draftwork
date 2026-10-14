@@ -4,37 +4,33 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Draftwork Viewer</title>
+  <script>try{var a=JSON.parse(localStorage.getItem('draftwork.appearance')||'{}');if(a.theme&&a.theme!=='system')document.documentElement.dataset.theme=a.theme;if(a.size&&a.size!=='normal')document.documentElement.dataset.size=a.size}catch(e){}</script>
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="./" id="brand">Draftwork</a>
-    <nav role="tablist">
-      <button role="tab" id="tab-review" aria-selected="true" aria-controls="view-review">Review submissions</button>
+    <nav role="tablist" class="topnav">
+      <button role="tab" id="tab-review" aria-selected="true" aria-controls="view-review">Submissions</button>
       <button role="tab" id="tab-assign" aria-selected="false" aria-controls="view-assign">Assignments</button>
     </nav>
     <span class="spacer"></span>
-    <span class="small muted">Instructor</span>
+    <span class="appearance-slot"></span>
   </header>
 
   <main class="page">
-    <!-- Review -->
+    <!-- Submissions -->
     <section id="view-review" role="tabpanel">
       <div id="review-list">
-        <div class="section-head">
-          <div>
-            <h1>Review submissions</h1>
-            <p class="muted">Open the <code>.draftwork</code> files students uploaded to your LMS dropbox. Files stay in this browser; nothing is uploaded.</p>
-          </div>
-        </div>
-        <label class="dropzone" id="drop" for="file-input">
-          <strong>Drop .draftwork files here</strong> or click to choose. Open the whole class at once to switch on class comparisons.
+        <h1>Submissions</h1>
+        <label class="dropzone" id="drop" for="file-input" data-tip="Files are opened in this browser only; nothing is uploaded.">
+          <strong>Drop .draftwork files here</strong> or click to choose
           <input type="file" id="file-input" accept=".draftwork,application/gzip,application/json" multiple class="hidden">
         </label>
         <div class="row" style="margin-top:10px">
-          <button class="btn small hidden" id="load-demo" type="button">Load the demo class</button>
-          <button class="btn small ghost hidden" id="clear-files" type="button">Clear loaded files</button>
-          <span class="small muted" id="load-status"></span>
+          <button class="btn small hidden" id="load-demo" type="button" data-tip="Open a set of sample submissions to try the viewer">Load demo class</button>
+          <button class="btn small ghost hidden" id="clear-files" type="button">Clear</button>
+          <span class="small muted" id="load-status" role="status"></span>
         </div>
         <div id="groups" style="margin-top:20px"></div>
       </div>
@@ -42,8 +38,8 @@
         <div class="row" style="margin-bottom:16px">
           <button class="btn small" id="back" type="button">← All submissions</button>
           <span class="spacer"></span>
-          <button class="btn small" id="prev" type="button">← Previous</button>
-          <button class="btn small" id="next" type="button">Next →</button>
+          <button class="btn small" id="prev" type="button" data-tip="Previous student (alphabetical)">← Previous</button>
+          <button class="btn small" id="next" type="button" data-tip="Next student (alphabetical)">Next →</button>
         </div>
         <div id="report"></div>
       </div>
@@ -52,7 +48,6 @@
     <!-- Assignments -->
     <section id="view-assign" role="tabpanel" class="hidden">
       <h1>Assignments</h1>
-      <p class="muted">An assignment config sets the title, a random nonce and the policy. Students open it with the link or code; their file stores it verbatim with its hash, so a log written for a different assignment, or under looser paste rules, fails the check.</p>
       <div class="grid2">
         <form class="card stack" id="new-form">
           <h2>New assignment</h2>
@@ -61,35 +56,38 @@
             <input type="text" id="f-title" required placeholder="Essay 2: Cities and Memory">
           </div>
           <div>
-            <label for="f-paste">Pasting from outside the document</label>
+            <label for="f-paste" data-tip="Students can always move their own text around. This controls pasting text from anywhere else.">Pasting from other sources</label>
             <select id="f-paste">
-              <option value="block">Blocked (attempts are logged with length only)</option>
-              <option value="allow">Allowed (logged and labelled)</option>
+              <option value="block">Blocked</option>
+              <option value="allow">Allowed</option>
             </select>
           </div>
-          <label class="check"><input type="checkbox" id="f-sources" checked> <span>Sources pane for pasted quotes <span class="hint">(tagged and kept separate)</span></span></label>
+          <label class="check" data-tip="A side panel where students paste quotes, then copy them into their writing. Quotes are marked as such in the record."><input type="checkbox" id="f-sources" checked> <span>Sources panel for quotes</span></label>
           <div class="row">
-            <div style="flex:1"><label for="f-min">Min words <span class="hint">(optional)</span></label><input type="number" id="f-min" min="0"></div>
-            <div style="flex:1"><label for="f-max">Max words <span class="hint">(optional)</span></label><input type="number" id="f-max" min="0"></div>
-          </div>
-          <div>
-            <label for="f-tsa">Timestamp relay URL <span class="hint">(RFC 3161; same-origin relay by default)</span></label>
-            <input type="text" id="f-tsa" value="/tsa">
+            <div style="flex:1"><label for="f-min">Min words</label><input type="number" id="f-min" min="0" placeholder="Optional"></div>
+            <div style="flex:1"><label for="f-max">Max words</label><input type="number" id="f-max" min="0" placeholder="Optional"></div>
           </div>
           <details>
-            <summary>Flag thresholds</summary>
-            <p class="small muted" style="margin-top:8px">Starting values to calibrate in a pilot. They travel with the assignment, so students’ previews match what you see.</p>
-            <div class="thresholds" id="f-thresholds"></div>
+            <summary>Advanced</summary>
+            <div class="stack" style="margin-top:12px">
+              <div>
+                <label for="f-tsa" data-tip="Where students’ progress is sent to be timestamped. Leave as /tsa unless you run your own relay.">Timestamp service</label>
+                <input type="text" id="f-tsa" value="/tsa">
+              </div>
+              <div>
+                <div class="label-like" data-tip="When each flag is raised. These are starting values; students’ previews use the same settings.">Flag thresholds</div>
+                <div class="thresholds" id="f-thresholds"></div>
+              </div>
+            </div>
           </details>
-          <div><button class="btn primary" type="submit">Create assignment</button></div>
+          <div><button class="btn primary" type="submit">Create</button></div>
         </form>
-        <div>
+        <div class="stack">
           <div class="card stack">
-            <h2>Import an assignment code</h2>
-            <p class="small muted">To check submissions against an assignment created in another browser.</p>
+            <h2>Import</h2>
             <div class="row">
-              <input type="text" id="import-code" placeholder="Paste a code or student link" style="flex:1">
-              <button class="btn" id="import-btn" type="button">Import</button>
+              <input type="text" id="import-code" placeholder="Assignment code or student link" aria-label="Assignment code or student link" style="flex:1">
+              <button class="btn" id="import-btn" type="button" data-tip="Add an assignment created in another browser, so its submissions can be checked">Import</button>
             </div>
           </div>
           <div class="card" id="assign-list"></div>
