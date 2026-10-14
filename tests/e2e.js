@@ -4,10 +4,11 @@
 //
 //   node tests/e2e.js [--browser "C:\path\to\msedge.exe"] [--headed]
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, extname } from 'node:path';
+import { createServer as httpServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 import { newConfig, encodeConfig, configHash } from '../public/js/core/format.js';
@@ -36,6 +37,25 @@ const freePort = () => new Promise((res) => {
     s.close(() => res(port));
   });
 });
+
+// A plain static file server, like GitHub Pages: no /tsa relay, no samples endpoint.
+function staticServer(dir, port) {
+  const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
+  const srv = httpServer(async (req, res) => {
+    let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    if (p.endsWith('/')) p += 'index.html';
+    const file = join(dir, p);
+    if (!file.startsWith(dir)) return res.writeHead(403).end();
+    try {
+      const data = await readFile(file);
+      res.writeHead(200, { 'Content-Type': types[extname(file)] || 'application/octet-stream' }).end(data);
+    } catch {
+      res.writeHead(404).end('not found');
+    }
+  });
+  srv.listen(port);
+  return srv;
+}
 
 // ---------- minimal CDP client ----------
 
@@ -173,7 +193,9 @@ const profile = await mkdtemp(join(tmpdir(), 'draftwork-e2e-'));
 const server = spawn(process.execPath, [join(ROOT, 'server.js'), '--port', String(serverPort), '--mock-tsa'], { stdio: 'ignore' });
 const browser = spawn(BROWSER, [
   `--remote-debugging-port=${cdpPort}`, `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check',
-  '--disable-extensions', '--disable-features=Translate', ...(args.includes('--headed') ? [] : ['--headless=new']), 'about:blank',
+  '--disable-extensions', '--disable-features=Translate', ...(args.includes('--headed') ? [] : ['--headless=new']),
+  // CI containers (e.g. GitHub's Ubuntu runners) don't allow Chrome's sandbox.
+  ...(process.env.CI ? ['--no-sandbox'] : []), 'about:blank',
 ], { stdio: 'ignore' });
 
 let page;
@@ -320,6 +342,46 @@ try {
     const marks = await page.eval('[...document.querySelectorAll("#preview-body .checks .mark")].map((m) => m.className)');
     assert(marks.every((m) => /pass|warn/.test(m)), `checks: ${marks.join(', ')}`);
   });
+
+  // ---------- the static demo site (no server-side relay at all) ----------
+  const site = await mkdtemp(join(tmpdir(), 'draftwork-site-'));
+  await new Promise((res, rej) => {
+    const b = spawn(process.execPath, [join(ROOT, 'tools', 'build-static.js'), '--out', site], { stdio: 'ignore', cwd: ROOT });
+    b.on('exit', (c) => (c === 0 ? res() : rej(new Error(`build exited ${c}`))));
+  });
+  const staticPort = await freePort();
+  const statics = staticServer(site, staticPort);
+  const sbase = `http://localhost:${staticPort}`;
+
+  await check('static demo: "Start writing" works with simulated timestamps', async () => {
+    const demo = await Page.open(cdpPort);
+    await demo.goto(`${sbase}/index.html`);
+    await demo.waitFor('document.querySelector("#try-student").href.includes("#a=")');
+    await demo.goto(await demo.eval('document.querySelector("#try-student").href'));
+    await demo.waitFor('!document.querySelector("#new-card").classList.contains("hidden")');
+    const facts = await demo.eval('document.querySelector("#a-policy").textContent');
+    assert(/Test assignment/.test(facts), 'not marked as a test assignment');
+    await demo.eval(`document.querySelector('#label-input').value = 'Visitor'; document.querySelector('#consent-input').checked = true; document.querySelector('#start-btn').click(); true`);
+    await demo.waitFor('!document.querySelector("#screen-writer").classList.contains("hidden")');
+    await demo.eval('document.querySelector("#editor").focus(); true');
+    await demo.type('A short test.');
+    await demo.eval(`document.querySelector('#preview-btn').click(); true`);
+    await demo.waitFor('document.querySelectorAll("#preview-body .checks li").length === 5', 20000);
+    const tsa = await demo.eval('[...document.querySelectorAll("#preview-body .checks li")].pop().textContent');
+    assert(/verified/.test(tsa) && /test assignment/i.test(tsa), `timestamp check: ${tsa}`);
+    await demo.close(cdpPort);
+  });
+
+  await check('static demo: the sample class opens from the front page', async () => {
+    const demo = await Page.open(cdpPort);
+    await demo.goto(`${sbase}/instructor.html#demo`);
+    await demo.waitFor('document.querySelectorAll("tr.clickable").length > 15', 30000);
+    const notice = await demo.eval('!document.querySelector("#no-relay-note").classList.contains("hidden")');
+    assert(notice, 'no-relay notice not shown');
+    await demo.close(cdpPort);
+  });
+  statics.close();
+  await rm(site, { recursive: true, force: true }).catch(() => {});
 } finally {
   if (page) await page.close(cdpPort).catch(() => {});
   browser.kill();

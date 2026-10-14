@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Draftwork</title>
+  <meta name="description" content="A writing sandbox that records how a piece of writing was produced, so instructors can replay it and talk with students about it.">
   <script>try{var a=JSON.parse(localStorage.getItem('draftwork.appearance')||'{}');if(a.theme&&a.theme!=='system')document.documentElement.dataset.theme=a.theme;if(a.size&&a.size!=='normal')document.documentElement.dataset.size=a.size}catch(e){}</script>
   <link rel="stylesheet" href="css/app.css">
 </head>
@@ -11,10 +12,13 @@
   <header class="topbar">
     <a class="brand" href="./" id="brand">Draftwork</a>
     <span class="spacer"></span>
+    <a class="btn small ghost" href="guide.html">Guide</a>
+    <a class="btn small ghost" href="privacy.html">Privacy</a>
     <span class="appearance-slot"></span>
   </header>
   <main class="page narrow">
     <h1 class="home-title">Draftwork</h1>
+    <p class="lede">Students write in a word processor that records how their work came together. Instructors replay it and ask about a few specific moments in a short conversation.</p>
     <div class="choices">
       <a class="card choice" href="student.html">
         <h2>Write</h2>
@@ -25,14 +29,41 @@
         <p class="muted">Create assignments and read submissions.</p>
       </a>
     </div>
+
+    <section class="try card">
+      <h2>Try it</h2>
+      <div class="try-row">
+        <div>
+          <strong>As a student</strong>
+          <p class="muted small">Write a few paragraphs in a practice assignment, then open Preview to see what an instructor would see.</p>
+        </div>
+        <a class="btn primary" id="try-student" href="student.html">Start writing</a>
+      </div>
+      <div class="try-row">
+        <div>
+          <strong>As an instructor</strong>
+          <p class="muted small">Explore a sample class, including a few submissions that were copied, retyped or tampered with.</p>
+        </div>
+        <a class="btn" id="try-instructor" href="instructor.html#demo">Open sample class</a>
+      </div>
+    </section>
+
+    <p class="small muted center">Free and open source (Apache 2.0). <a href="guide.html">How it works</a></p>
   </main>
   <script type="module">
     import { $, LOGO } from './js/ui/dom.js';
     import { appearanceButton } from './js/ui/appearance.js';
     import { initTooltips } from './js/ui/tooltip.js';
+    import { encodeConfig } from './js/core/format.js';
+    import { DEMO_CONFIG } from './js/core/demo.js';
     initTooltips();
     $('#brand').insertAdjacentHTML('afterbegin', LOGO);
     $('.appearance-slot').append(appearanceButton());
+    encodeConfig(DEMO_CONFIG).then((code) => { $('#try-student').href = `student.html#a=${code}`; });
+    // The sample class needs the bundled samples; hide the option where they aren't available.
+    fetch('samples/index.json').then((r) => (r.ok ? r.json() : [])).then((names) => {
+      if (!names.some((n) => n.endsWith('.draftwork'))) $('#try-instructor').closest('.try-row').remove();
+    }).catch(() => $('#try-instructor').closest('.try-row').remove());
   </script>
 </body>
 </html>

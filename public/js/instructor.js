@@ -4,7 +4,8 @@ import {
   newConfig, configHash, encodeConfig, decodeConfig, parseFile, DEFAULT_THRESHOLDS, THRESHOLD_LABELS, countWords,
 } from './core/format.js';
 import { analyzeFile, finalize, fmtDuration } from './core/analysis.js';
-import { relayInfo } from './core/tsa.js';
+import { relayInfo, BROWSER_DEMO_TSA } from './core/tsa.js';
+import { DEMO_CONFIG } from './core/demo.js';
 import { sha256Hex } from './core/canon.js';
 import { isZip, readZip, lmsName, namesMatch } from './core/zipread.js';
 import { renderReport } from './ui/report.js';
@@ -134,9 +135,25 @@ $('#new-form').addEventListener('submit', async (ev) => {
   reanalyze();
 });
 
-// When the server is running the offline demo timestamp service, new assignments must accept it.
+// How this copy of Draftwork is deployed. Static hosts publish site.json (written by the static
+// build); the Node server has none and provides /tsa itself.
+let site = { static: false, relay: null };
+const siteReady = fetch('site.json').then((r) => (r.ok ? r.json() : null)).then((s) => {
+  if (s) site = { ...site, ...s };
+}).catch(() => {});
+
+// Defaults for new assignments: the site's relay, or test assignments when there's no real one.
 async function presetDemo() {
-  const info = await relayInfo(new URL($('#f-tsa').value.trim() || '/tsa', location.href).href);
+  await siteReady;
+  if (site.static && !site.relay) {
+    $('#f-tsa').value = BROWSER_DEMO_TSA;
+    $('#f-demo').checked = true;
+    $('#no-relay-note').classList.remove('hidden');
+    return;
+  }
+  if (site.relay) $('#f-tsa').value = site.relay;
+  const tsa = $('#f-tsa').value.trim() || '/tsa';
+  const info = await relayInfo(tsa.startsWith('demo:') ? tsa : new URL(tsa, location.href).href);
   if (info && info.mode === 'mock') {
     $('#f-demo').checked = true;
     $('#f-demo').closest('label').dataset.tip = 'This server is running the offline demo timestamp service, so test assignments must accept demo timestamps.';
@@ -457,15 +474,17 @@ drop.addEventListener('drop', async (ev) => {
   await addFiles(await readEntries(ev.dataTransfer.files));
 });
 
-// Demo class (served by `npm run simulate` + server.js; absent on a plain static host).
+// Demo class (from `npm run simulate` with server.js, or bundled by the static build).
+// instructor.html#demo opens it straight away.
 (async () => {
   try {
     const names = await (await fetch('samples/index.json')).json();
     if (!names.some((n) => n.endsWith('.draftwork'))) return;
     const btn = $('#load-demo');
     btn.classList.remove('hidden');
-    btn.addEventListener('click', async () => {
+    const load = async () => {
       btn.disabled = true;
+      await addToLibrary(DEMO_CONFIG, { demo: true });
       if (names.includes('assignment-codes.txt')) {
         const txt = await (await fetch('samples/assignment-codes.txt')).text();
         for (const line of txt.split(/\r?\n/)) {
@@ -482,7 +501,9 @@ drop.addEventListener('drop', async (ev) => {
       }
       await addFiles(entries);
       btn.disabled = false;
-    });
+    };
+    btn.addEventListener('click', load);
+    if (location.hash === '#demo') load();
   } catch { /* no demo */ }
 })();
 

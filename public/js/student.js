@@ -4,6 +4,7 @@ import { decodeConfig, configHash, diffOp, parseFile, serializeFile, fileName, c
 import { MARKS, STYLES, HEADING_STYLES } from './core/doc.js';
 import { FONTS, SIZES, LINE_SPACINGS, docStyle, docStyleCss } from './core/export.js';
 import { Recorder } from './core/recorder.js';
+import { isTestAssignment } from './core/demo.js';
 import { requestStamp, relayInfo } from './core/tsa.js';
 import { getDraft, putDraft, deleteDraft, addVersion, listVersions, getVersion } from './core/store.js';
 import { analyzeFile, finalize } from './core/analysis.js';
@@ -80,8 +81,9 @@ function refuse(msg) {
 const isDesktop = () => !(matchMedia('(pointer: coarse)').matches && !matchMedia('(pointer: fine)').matches);
 
 async function checkConnection() {
-  if (!navigator.onLine) throw new Error('This computer is offline.');
-  const info = await relayInfo(new URL(config.tsa_url, location.href).href);
+  const simulated = String(config.tsa_url).startsWith('demo:');
+  if (!simulated && !navigator.onLine) throw new Error('This computer is offline.');
+  const info = await relayInfo(simulated ? config.tsa_url : new URL(config.tsa_url, location.href).href);
   if (info && info.mode === 'mock' && !config.allow_demo_tsa) {
     throw new Error('This Draftwork server is in test mode, so your work couldn’t be verified. Let your instructor know.');
   }
@@ -111,7 +113,9 @@ async function openAssignment(code) {
     p.sources_pane && h('li', { 'data-tip': 'A side panel where you can paste quotes, then copy them into your writing.' }, 'Sources panel for quotes'),
     (p.words_min || p.words_max) && h('li', null, `${p.words_min || 0}–${p.words_max || 'any'} words`),
     config.due && h('li', null, `Due ${new Date(config.due).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}`),
-    h('li', { 'data-tip': 'Your work is timestamped as you go, so you need to stay connected.' }, 'Needs an internet connection'),
+    isTestAssignment(config)
+      ? h('li', { class: 'warn-text', 'data-tip': 'Timestamps are simulated, so this file can’t prove when it was written. Fine for trying Draftwork out; real assignments use a timestamp service.' }, 'Test assignment: for trying Draftwork out')
+      : h('li', { 'data-tip': 'Your work is timestamped as you go, so you need to stay connected.' }, 'Needs an internet connection'),
   );
   if (!isDesktop()) {
     refuse('Draftwork works on desktop and laptop computers.');
@@ -952,6 +956,12 @@ function updateStampPill() {
   const pill = $('#stamp-pill');
   const txt = $('#stamp-text');
   const pending = rec.unstamped();
+  if (!pending.length && isTestAssignment(config)) {
+    pill.className = 'pill';
+    txt.textContent = 'Test assignment';
+    pill.dataset.tip = 'Timestamps are simulated for this test assignment, so the file can’t prove when it was written.';
+    return;
+  }
   if (!pending.length) {
     pill.className = 'pill ok';
     txt.textContent = 'Connected';

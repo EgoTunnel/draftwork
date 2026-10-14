@@ -1,0 +1,43 @@
+# Publishes the static site to GitHub Pages on every push to main.
+# Settings → Pages → Source: "GitHub Actions".
+# Optional: Settings → Secrets and variables → Actions → Variables → DRAFTWORK_RELAY_URL
+# (the URL of your deployed relay, see docs/DEPLOY.md). Without it the site runs as a demo.
+name: Publish site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm run build
+        env:
+          RELAY_URL: ${{ vars.DRAFTWORK_RELAY_URL }}
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

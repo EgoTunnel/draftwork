@@ -61,6 +61,10 @@ export function buildRequest(hashBytes, nonceBytes) {
 // Resolves to the base64 DER of the TimeStampToken (a CMS ContentInfo).
 export async function requestStamp(url, hashHex, { timeoutMs = 15000 } = {}) {
   const req = buildRequest(unhex(hashHex));
+  if (isBrowserDemo(url)) {
+    const tsa = await browserDemoTsa();
+    return toBase64(A.raw(extractToken(await tsa.respond(req))));
+  }
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   let res;
@@ -82,8 +86,18 @@ export async function requestStamp(url, hashHex, { timeoutMs = 15000 } = {}) {
   return toBase64(A.raw(token));
 }
 
+// "demo:" as the timestamp service means simulated stamps made in this browser (test assignments only).
+export const BROWSER_DEMO_TSA = 'demo:browser';
+const isBrowserDemo = (url) => String(url).startsWith('demo:');
+let demoTsa = null;
+function browserDemoTsa() {
+  if (!demoTsa) demoTsa = import('./mocktsa.js').then((m) => m.createMockTsa());
+  return demoTsa;
+}
+
 // Which kind of timestamping the relay at `url` provides ({ mode: 'relay' | 'mock', services }).
 export async function relayInfo(url) {
+  if (isBrowserDemo(url)) return { mode: 'mock', services: ['simulated in this browser'] };
   try {
     const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(4000) });
     if (res.ok) return await res.json();

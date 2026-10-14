@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Draftwork Guide</title>
+  <script>try{var a=JSON.parse(localStorage.getItem('draftwork.appearance')||'{}');if(a.theme&&a.theme!=='system')document.documentElement.dataset.theme=a.theme;if(a.size&&a.size!=='normal')document.documentElement.dataset.size=a.size}catch(e){}</script>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./" id="brand">Draftwork</a>
+    <span class="spacer"></span>
+    <a class="btn small ghost" href="privacy.html">Privacy</a>
+    <span class="appearance-slot"></span>
+  </header>
+  <main class="page narrow prose guide">
+    <h1>Instructor guide</h1>
+    <p>Draftwork doesn’t decide who wrote something. It gives you a record of how the writing came together and points you to a few moments worth asking about. The conversation is what tells you whether a student did the work.</p>
+
+    <h2>1. Set up the assignment</h2>
+    <ol>
+      <li>Open <a href="instructor.html">Review</a> → <strong>Assignments</strong> and create one. Pasting from other sources is blocked by default; students can still move their own text, and quote sources through the sources panel.</li>
+      <li>Click <strong>Copy link</strong> and post it where students find the assignment (your LMS page is fine).</li>
+      <li>Tell students up front: their writing process is recorded, they can see exactly what you’ll see with <strong>Preview</strong>, and a pattern can only ever lead to a conversation, never directly to a penalty.</li>
+      <li>Collect the <code>.draftwork</code> files through your LMS dropbox as usual.</li>
+    </ol>
+
+    <h2>2. Open the submissions</h2>
+    <p>Drop the files, or the zip your LMS gives you for “download all submissions”, onto the Submissions page. Nothing is uploaded; files open in your browser. Use the filters to start with flagged work, but skim a few unflagged ones too: you’ll learn what normal looks like for your class.</p>
+
+    <h2>3. Read a submission</h2>
+    <ul>
+      <li><strong>Integrity</strong> checks are pass/fail. A failure means the file was altered or made outside Draftwork. That is a real finding, but still talk to the student first: ask them to show you how they saved it.</li>
+      <li><strong>Flags</strong> are reasons to ask, not conclusions. Each lists innocent explanations. Read the student’s own notes and responses beside them.</li>
+      <li><strong>Writing process</strong> shows how the text grew. In composed writing the lines separate (typing, deleting, going back); copied text tends to go in as one smooth line.</li>
+      <li><strong>Questions to ask</strong> are specific moments, flagged ones first. Click a question to see that moment in the replay before you ask it.</li>
+    </ul>
+
+    <h2>4. Run the five-minute check-in</h2>
+    <p>Ask two or three of the suggested questions. Someone who wrote the piece answers in seconds; they remember why they cut a paragraph or moved a quote. Someone who copied it has nothing to remember.</p>
+    <div class="q-example">“At 0:42 you cut 180 words from your second section. What was wrong with it?”</div>
+    <div class="q-example">“This section went in with almost no changes. Did you plan it somewhere else first?”</div>
+    <ul>
+      <li>Ask openly and neutrally. Don’t say what was flagged until they’ve answered.</li>
+      <li>Accept ordinary answers: “I outlined it on paper”, “I compose in my head”, “I was checking my notes in another tab”. Those are common and fine.</li>
+      <li>Be especially careful with multilingual writers, students using dictation or assistive technology, and fast typists. Linear writing is not evidence of anything on its own.</li>
+      <li>Record the answer and an outcome under each question, and mark each flag “benign” or “concern”. <strong>Print summary</strong> gives you a one-page record.</li>
+    </ul>
+
+    <h2>5. Afterwards</h2>
+    <p>Follow your institution’s academic integrity process for anything that remains a concern. Draftwork’s record supports that conversation; it doesn’t replace it.</p>
+    <p>If you’re willing, share the <strong>Export → Anonymised</strong> spreadsheet with the project. Real outcomes are how the flags get better.</p>
+
+    <h2>For students</h2>
+    <p>Write the way you normally would. Draft, delete, move things around: that’s what a real writing record looks like. If something about your process is unusual (paper drafts, dictation, writing in another language first), say so in <strong>File → Notes</strong>. Before you submit, open <strong>Preview</strong>; if anything is flagged, you can add a note explaining it.</p>
+  </main>
+  <script type="module">
+    import { $, LOGO } from './js/ui/dom.js';
+    import { appearanceButton } from './js/ui/appearance.js';
+    import { initTooltips } from './js/ui/tooltip.js';
+    initTooltips();
+    $('#brand').insertAdjacentHTML('afterbegin', LOGO);
+    $('.appearance-slot').append(appearanceButton());
+  </script>
+</body>
+</html>
