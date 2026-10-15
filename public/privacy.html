@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https:; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Draftwork Privacy</title>
   <script>try{var a=JSON.parse(localStorage.getItem('draftwork.appearance')||'{}');if(a.theme&&a.theme!=='system')document.documentElement.dataset.theme=a.theme;if(a.size&&a.size!=='normal')document.documentElement.dataset.size=a.size}catch(e){}</script>
@@ -28,7 +29,7 @@
     <h2>Where it goes</h2>
     <ul>
       <li>While you write, your draft is stored in this browser on this computer.</li>
-      <li>About once a minute, a <em>fingerprint</em> of your progress (a SHA-256 hash, which can’t be turned back into your text) is sent to a public timestamp service, through this site’s relay, to prove when that progress existed.</li>
+      <li>About once a minute, a <em>fingerprint</em> of your progress (a SHA-256 hash, which can’t be turned back into your text) is sent to a public timestamp service, through this site’s relay, to prove when that progress existed. Like any website, the relay sees your IP address; it doesn’t keep the fingerprints or see your text.</li>
       <li>Your writing leaves your computer only when you save the file and upload it to your course yourself.</li>
     </ul>
 
@@ -44,7 +45,10 @@
     <h2>How long it’s kept</h2>
     <p>Your submitted file is kept by your course like any other submission, under your institution’s retention rules. Drafts in this browser stay until you discard them or clear the browser’s data. Your instructor’s check-in notes are kept in their browser.</p>
 
-    <p class="muted small">Institutions: a template notice you can adapt is in <code>docs/student-data-notice.md</code> in the Draftwork repository.</p>
+    <h2>Who runs this copy</h2>
+    <p id="operator">This copy of Draftwork hasn’t named an operator. Ask your instructor who runs it.</p>
+
+    <p class="muted small">Draftwork is free, open-source software provided as is, without warranty (Apache License 2.0). Institutions: a template notice you can adapt is in <code>docs/student-data-notice.md</code> in the Draftwork repository.</p>
   </main>
   <script type="module">
     import { $, LOGO } from './js/ui/dom.js';
@@ -53,6 +57,9 @@
     initTooltips();
     $('#brand').insertAdjacentHTML('afterbegin', LOGO);
     $('.appearance-slot').append(appearanceButton());
+    fetch('site.json').then((r) => (r.ok ? r.json() : null)).then((s) => {
+      if (s && s.operator) $('#operator').textContent = `This copy of Draftwork is run by ${s.operator}.`;
+    }).catch(() => {});
   </script>
 </body>
 </html>

@@ -313,6 +313,23 @@ try {
     assert(ev.some((e) => e.k === 'untrusted'), 'no untrusted event');
   });
 
+  await check('text inserted with execCommand (devtools, extensions) is refused', async () => {
+    const before = await page.eval('document.querySelector("#editor").textContent');
+    await page.eval(`(() => {
+      const ed = document.querySelector('#editor'); ed.focus();
+      const r = document.createRange(); r.selectNodeContents(ed.lastChild); r.collapse(false);
+      getSelection().removeAllRanges(); getSelection().addRange(r);
+      document.execCommand('insertText', false, ' An entire essay written somewhere else and slipped in.');
+      return true; })()`);
+    await sleep(900);
+    const after = await page.eval('document.querySelector("#editor").textContent');
+    assert(after === before, `text got in: ${JSON.stringify(after.slice(-60))}`);
+    await sleep(5600);
+    const ev = await page.eval(draftEvents(cfgHash));
+    assert(!ev.some((e) => (e.x || '').includes('slipped in')), 'inserted text was recorded as writing');
+    assert(ev.some((e) => e.k === 'untrusted' && e.it === 'unannounced-insertText'), 'not logged as untrusted');
+  });
+
   await check('a second tab cannot open the same draft', async () => {
     const other = await Page.open(cdpPort);
     await other.goto(`${base}/student.html#a=${code}`);

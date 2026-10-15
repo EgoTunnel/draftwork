@@ -84,12 +84,17 @@ async function readBody(req) {
   return Buffer.concat(chunks);
 }
 
-// The upstream that answered last goes first next time.
-let preferred = 0;
+// Requests rotate across the services, so a class's load is shared rather than landing on one
+// free service; if one fails, the next is tried. Services that just failed are skipped for a minute.
+let next = 0;
+const resting = new Map(); // index -> time until which it is skipped
 async function stampUpstream(body) {
   const errors = [];
-  for (let k = 0; k < UPSTREAMS.length; k++) {
-    const idx = (preferred + k) % UPSTREAMS.length;
+  const start = next;
+  next = (next + 1) % UPSTREAMS.length;
+  const order = UPSTREAMS.map((_, k) => (start + k) % UPSTREAMS.length);
+  const ready = order.filter((i) => !(resting.get(i) > Date.now()));
+  for (const idx of [...ready, ...order.filter((i) => !ready.includes(i))]) {
     const url = UPSTREAMS[idx];
     try {
       const up = await fetch(url, {
@@ -101,9 +106,10 @@ async function stampUpstream(body) {
       if (!up.ok) throw new Error(`HTTP ${up.status}`);
       const out = Buffer.from(await up.arrayBuffer());
       if (out.length < 32 || out[0] !== 0x30) throw new Error('not a timestamp response');
-      preferred = idx;
+      resting.delete(idx);
       return out;
     } catch (err) {
+      resting.set(idx, Date.now() + 60_000);
       errors.push(`${url}: ${err.message}`);
     }
   }

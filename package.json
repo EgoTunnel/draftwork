@@ -1,6 +1,6 @@
 {
   "name": "draftwork",
-  "version": "0.1.0",
+  "version": "0.9.0",
   "private": true,
   "license": "Apache-2.0",
   "description": "Records how a piece of writing was produced so an instructor can replay it and ask about it.",

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https:; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Draftwork Help</title>
+  <script>try{var a=JSON.parse(localStorage.getItem('draftwork.appearance')||'{}');if(a.theme&&a.theme!=='system')document.documentElement.dataset.theme=a.theme;if(a.size&&a.size!=='normal')document.documentElement.dataset.size=a.size}catch(e){}</script>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./" id="brand">Draftwork</a>
+    <span class="spacer"></span>
+    <a class="btn small ghost" href="guide.html">Guide</a>
+    <a class="btn small ghost" href="privacy.html">Privacy</a>
+    <span class="appearance-slot"></span>
+  </header>
+  <main class="page narrow prose help">
+    <h1>Help</h1>
+    <p class="muted">Jump to: <a href="#students">For students</a> · <a href="#instructors">For instructors</a></p>
+
+    <h2 id="students">For students</h2>
+
+    <details open>
+      <summary>How do I submit?</summary>
+      <p>Click <strong>Save file</strong> (or press Ctrl+S). A <code>.draftwork</code> file downloads, usually to your Downloads folder, and you get a receipt code. Upload that file to your course, where your instructor asked for it. If you write more later, save again and upload the new file; it includes everything from the start.</p>
+    </details>
+
+    <details>
+      <summary>It says it can’t reach the timestamp service</summary>
+      <ul>
+        <li>Check your internet connection, then reload the page and try again.</li>
+        <li>If you were already writing, <strong>keep going</strong>: your work is saved, and your progress is timestamped when the connection comes back. Only a gap of more than 10 minutes is visible to your instructor, and it’s just something they may ask about.</li>
+        <li>School or work networks sometimes block it. Try another network if you can.</li>
+        <li>If it keeps happening, save your file and tell your instructor.</li>
+      </ul>
+    </details>
+
+    <details>
+      <summary>I’m on another computer, or my draft is gone</summary>
+      <ul>
+        <li>Your draft lives in the browser you wrote it in. On another computer, open your assignment link and choose <strong>Open saved file…</strong>, then pick the last <code>.draftwork</code> file you saved.</li>
+        <li>On the same computer, check you’re using the same browser and not a private window. The start page lists <strong>Earlier versions</strong> if you need to go back.</li>
+        <li>If you cleared your browsing data and never saved a file, the draft can’t be recovered. Tell your instructor what happened; they can arrange something.</li>
+      </ul>
+    </details>
+
+    <details>
+      <summary>It says the assignment is open in another tab</summary>
+      <p>A draft can only be open in one tab at a time, so two tabs don’t record conflicting histories. Close the other tab or window (or the whole browser), then try again.</p>
+    </details>
+
+    <details>
+      <summary>Paste doesn’t work</summary>
+      <p>Your instructor turned off pasting from other places for this assignment. You can still move your own text around. To quote a source, paste it into the <strong>Sources</strong> panel on the right, then copy it from there into your writing; you’ll be asked where it’s from.</p>
+    </details>
+
+    <details>
+      <summary>Something I didn’t type was removed, and a message mentioned an extension</summary>
+      <p>Browser extensions such as grammar checkers or translators sometimes change text on the page. Draftwork undoes those changes so your record shows only your own writing. Turn the extension off for this site, or use a browser profile without it.</p>
+    </details>
+
+    <details>
+      <summary>Which browser should I use?</summary>
+      <p>Chrome or Edge on a laptop or desktop computer (Chromebooks run Chrome). Other browsers may work, but they haven’t been tested as thoroughly. Phones and tablets aren’t supported.</p>
+    </details>
+
+    <details>
+      <summary>I use dictation, an input method, or a screen reader</summary>
+      <p>That’s fine. Tick <strong>I’m using dictation</strong> when you start, or later in <strong>File → Notes</strong>, and add anything about how you work there. Dictated text arriving in chunks is expected and isn’t treated as suspicious.</p>
+    </details>
+
+    <details>
+      <summary>Something is flagged in Preview. Am I in trouble?</summary>
+      <p>No. A flag is only something your instructor might ask you about, and every flag lists ordinary explanations. Use the note box under the flag to explain, for example “I drafted this on paper first.”</p>
+    </details>
+
+    <h2 id="instructors">For instructors</h2>
+
+    <details open>
+      <summary>My assignments disappeared</summary>
+      <p>Assignments are kept in the browser, at the web address you used. Check you’re in the same browser, not in a private window, and at the same address. If they’re gone, use <strong>Assignments → Restore from backup…</strong>. Without a backup, ask any student for their assignment link and use <strong>Add a single assignment from its code or link</strong>. Every student file also contains the assignment, so you can still review submissions in the meantime; the “Written for this assignment” check will just show “?”.</p>
+    </details>
+
+    <details>
+      <summary>“Timestamps are verified” failed</summary>
+      <ul>
+        <li><strong>“Not an approved timestamp service”</strong>: the file was stamped by a service Draftwork doesn’t accept. That’s worth a conversation. If your institution runs its own timestamp service, add it under Assignments → Advanced.</li>
+        <li><strong>“Demo timestamp service, which this assignment does not accept”</strong>: the student wrote against a test copy of Draftwork, or the assignment was set up as a test. Check which link they used.</li>
+        <li><strong>A few checkpoints “stamped late” or “not stamped”</strong>: usually the student’s connection dropped. Look at the “Timestamp gap” flag to see when.</li>
+      </ul>
+    </details>
+
+    <details>
+      <summary>A student had a technical problem near the deadline</summary>
+      <ul>
+        <li>If they have a saved file, it can be continued on any computer: <strong>Open saved file…</strong> on the assignment page.</li>
+        <li>If they lost everything (cleared browser data, no saved file), the work can’t be recovered from Draftwork. Apply your usual extension or alternative policy.</li>
+        <li>If the timestamp service was down for everyone, every file will show a gap at the same time. That is not a finding about any student.</li>
+      </ul>
+    </details>
+
+    <details>
+      <summary>A student says they wrote it, but there are flags</summary>
+      <p>Believe the conversation more than the flags. Flags are reasons to ask, not conclusions. Mark the flag <strong>Benign after check-in</strong> and, if you’re willing, share the anonymised export so the thresholds can improve.</p>
+    </details>
+
+    <details>
+      <summary>Where do I report a bug, or a way to fake the record?</summary>
+      <p>Bugs: open an issue on the project’s GitHub page. Ways to fake or bypass the record: please report them privately (see SECURITY.md in the repository) so they can be fixed before they’re widely known.</p>
+    </details>
+  </main>
+  <script type="module">
+    import { $, LOGO } from './js/ui/dom.js';
+    import { appearanceButton } from './js/ui/appearance.js';
+    import { initTooltips } from './js/ui/tooltip.js';
+    initTooltips();
+    $('#brand').insertAdjacentHTML('afterbegin', LOGO);
+    $('.appearance-slot').append(appearanceButton());
+    // Open the section a link points at, e.g. help.html#instructors.
+    if (location.hash) {
+      const target = document.querySelector(location.hash);
+      if (target) {
+        let el = target.nextElementSibling;
+        if (el && el.tagName === 'DETAILS') el.open = true;
+      }
+    }
+  </script>
+</body>
+</html>

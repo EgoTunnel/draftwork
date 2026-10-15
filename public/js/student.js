@@ -75,7 +75,8 @@ function refuse(msg) {
   const el = $('#refusal');
   el.innerHTML = '';
   el.append(h('strong', null, 'Can’t start writing. '), msg,
-    h('div', { style: 'margin-top:6px' }, 'If you can’t work online on a computer for this assignment, contact your instructor.'));
+    h('div', { style: 'margin-top:6px' }, 'If you can’t work online on a computer for this assignment, contact your instructor. ',
+      h('a', { href: 'help.html#students', target: '_blank', rel: 'noopener' }, 'Help')));
   el.classList.remove('hidden');
 }
 
@@ -585,6 +586,14 @@ function buildMenus() {
       ],
     },
     {
+      label: 'Help',
+      items: () => [
+        { label: 'Help and troubleshooting', action: () => window.open('help.html#students', '_blank', 'noopener') },
+        { label: 'How Draftwork works', action: () => window.open('guide.html', '_blank', 'noopener') },
+        { label: 'What’s recorded (privacy)', action: () => window.open('privacy.html', '_blank', 'noopener') },
+      ],
+    },
+    {
       label: 'Tools',
       items: () => [
         { label: 'Word count…', action: openCount },
@@ -860,6 +869,16 @@ $('#replace-input').addEventListener('paste', (e) => {
   toast('Pasting from other sources is off for this assignment.');
 });
 $('#replace-input').addEventListener('drop', (e) => e.preventDefault());
+// Replacement text must be typed: anything put there by a script (no beforeinput) is cleared.
+let replaceBefore = 0;
+$('#replace-input').addEventListener('beforeinput', (e) => {
+  if (e.isTrusted) replaceBefore = Date.now();
+});
+$('#replace-input').addEventListener('input', (e) => {
+  if (e.isTrusted && Date.now() - replaceBefore < 1000) return;
+  e.target.value = '';
+  if (rec && rec.inSession) rec.record({ k: 'untrusted', it: 'unannounced-replace', len: 0 });
+});
 $('#replace-one').addEventListener('click', () => {
   if (matchIdx < 0) return;
   const q = $('#find-input').value;

@@ -15,11 +15,13 @@ const args = process.argv.slice(2);
 const opt = (n, d) => (args.indexOf(n) >= 0 && args[args.indexOf(n) + 1] ? args[args.indexOf(n) + 1] : d);
 const OUT = resolve(ROOT, opt('--out', 'dist'));
 const RELAY = opt('--relay', process.env.RELAY_URL || '') || null;
+// Who runs this copy (shown on the privacy page), e.g. "Writing Centre, Example College (writing@example.edu)".
+const OPERATOR = opt('--operator', process.env.DRAFTWORK_OPERATOR || '') || null;
 
 await rm(OUT, { recursive: true, force: true });
 await cp(join(ROOT, 'public'), OUT, { recursive: true });
 await writeFile(join(OUT, '.nojekyll'), '');
-await writeFile(join(OUT, 'site.json'), JSON.stringify({ static: true, relay: RELAY }, null, 2));
+await writeFile(join(OUT, 'site.json'), JSON.stringify({ static: true, relay: RELAY, operator: OPERATOR }, null, 2));
 
 if (!args.includes('--no-samples')) {
   const dir = join(OUT, 'samples');

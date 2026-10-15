@@ -5,7 +5,7 @@ import {
 import { DocModel, isFormatEvent } from './doc.js';
 
 export const FORMAT = 'draftwork/1';
-export const APP_VERSION = '0.1.0';
+export const APP_VERSION = '0.9.0';
 export const EXTENSION = '.draftwork';
 
 export const CHECKPOINT_MS = 60_000;
@@ -34,6 +34,8 @@ export const DEFAULT_THRESHOLDS = {
   min_class_size: 15,
   long_pause_s: 2,
   overlap_words: 30,
+  quote_share: 0.25,
+  quote_chars: 600,
 };
 
 export const THRESHOLD_LABELS = {
@@ -55,6 +57,8 @@ export const THRESHOLD_LABELS = {
   min_class_size: 'Class-relative flags: minimum class size',
   long_pause_s: 'Long pause (seconds)',
   overlap_words: 'Shared passage: words in a row that also appear in another submission',
+  quote_share: 'Heavy quoting: share of the final text pasted from the sources panel',
+  quote_chars: 'Heavy quoting: longest single quote (characters)',
 };
 
 export function newConfig({

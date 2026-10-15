@@ -729,6 +729,7 @@ const BENIGN = {
   away: ['Checking notes or sources in another tab', 'Reading the prompt or rubric in another window'],
   fast: ['Fast writer', 'Drafted on paper first'],
   rhythm: ['Weak signal; some practised typists are very regular'],
+  quotes: ['An assignment built around close reading or analysis of a text', 'Long block quotations the assignment asked for'],
   overlap: ['Both quoted the same source without using the sources panel', 'Shared wording from the assignment prompt or class notes', 'Collaboration that the assignment allowed'],
 };
 
@@ -824,6 +825,27 @@ export function finalize(A, { cohort = [A], priors = [] } = {}) {
       raw.awayBursts.slice(0, 5).map((b) => ({ i: b.i, label: `${b.words} words after ${fmtDuration(b.awayMs)} away, ${clock(b.i)}` })), BENIGN.away));
   }
 
+  // Text moved into the essay from the sources panel is a quote; a lot of it, or one very long
+  // passage, is how outside text could be brought in while pasting is blocked.
+  {
+    const origin = raw.charOrigin;
+    const text = A.file.final.text;
+    let quoted = 0;
+    for (let j = 0; j < origin.length; j++) if (origin[j] < 0 && !/\s/.test(text[j])) quoted++;
+    const nonSpace = text.replace(/\s/g, '').length || 1;
+    const share = quoted / nonSpace;
+    const longest = events.filter((e) => e.k === 'paste_in' && e.from === 'src').sort((a, b) => (b.x || '').length - (a.x || '').length)[0];
+    const longLen = longest ? (longest.x || '').length : 0;
+    if (share > T.quote_share || longLen > T.quote_chars) {
+      const why = share > T.quote_share
+        ? `${Math.round(share * 100)}% of the final text was pasted in from the sources panel`
+        : `one passage of ${longLen.toLocaleString()} characters was pasted in from the sources panel`;
+      flags.push(flag('pattern', 'quotes', 'Heavy quoting',
+        `${why}. Quotes are fine, but this is also how text from elsewhere could be brought in while pasting is blocked.`,
+        longest ? [{ i: longest.s, label: `${longLen.toLocaleString()}-character quote at ${clock(longest.s)}` }] : [], BENIGN.quotes));
+    }
+  }
+
   // Long passages that also appear in another student's submission for this assignment.
   {
     const me = String(A.header.student_label || '').trim().toLowerCase();
@@ -893,7 +915,8 @@ function buildPrompts(A, flags) {
     else if (f.id === 'unusual') q = `At ${clock(m.i)} a long stretch of text arrived in one go (${m.label.split(' at ')[0]}). How did you enter that part?`;
     else if (f.id === 'gap') q = `The timestamps stop during ${m.label.replace('Gap ', '')}. What happened during that stretch?`;
     else if (f.id === 'untrusted') q = `At ${clock(m.i)} something other than the keyboard tried to change the text. Do you use any browser extensions while writing?`;
-    else if (f.id === 'overlap') q = `This passage ("${snippet(m.text)}") also appears in another submission. Where did the wording come from?`;
+    else if (f.id === 'quotes') q = `At ${clock(m.i)} you brought a long passage in from your sources. Where is it from, and how does it fit your argument?`;
+    else if (f.id === 'overlap') q =`This passage ("${snippet(m.text)}") also appears in another submission. Where did the wording come from?`;
     else if (f.id === 'fast') q = 'You wrote this quickly for its length. Walk me through how you prepared before you started typing.';
     else if (f.id === 'rhythm') q = 'Your typing rhythm is unusually even. Tell me about how you typed this one: one sitting, any tools?';
     if (q) add({ i: m.i, title: f.title, question: q, flagged: true });

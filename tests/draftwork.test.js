@@ -190,6 +190,27 @@ test('timestamps from an unapproved service fail, and demo stamps need the assig
   assert.equal((await integrityOf(allowed.file)).tsa, 'warn');
 });
 
+test('a long passage moved in from the sources panel is flagged as heavy quoting', async () => {
+  const essayText = 'This whole essay was written somewhere else and brought in through the sources panel. '.repeat(10);
+  const { file } = await makeFile(async ({ type, rec, wait }) => {
+    type('My intro. ');
+    rec.record({ k: 'paste_src', pane: 'src', p: 0, x: essayText, it: 'insertFromPaste' });
+    wait(3000);
+    rec.record({ k: 'paste_in', from: 'src', p: rec.text.length, x: essayText, it: 'insertFromPaste' });
+  });
+  const F = finalize(await analyzeFile(file));
+  const q = F.flags.find((f) => f.id === 'quotes');
+  assert.ok(q, 'no heavy-quoting flag');
+  assert.ok(F.prompts.some((p) => p.title === 'Heavy quoting'));
+  // An ordinary short quote is fine.
+  const { file: ok } = await makeFile(async ({ type, rec }) => {
+    type('A paragraph of my own words that goes on for a while, making an argument about cities and memory. ');
+    rec.record({ k: 'paste_src', pane: 'src', p: 0, x: '"We shape our buildings."', it: 'insertFromPaste' });
+    rec.record({ k: 'paste_in', from: 'src', p: rec.text.length, x: '"We shape our buildings."', it: 'insertFromPaste' });
+  });
+  assert.ok(!finalize(await analyzeFile(ok)).flags.some((f) => f.id === 'quotes'));
+});
+
 test('untrusted input and large drag-and-drop insertions are flagged', async () => {
   const { file } = await makeFile(async ({ type, rec, wait }) => {
     type('Some text. ');

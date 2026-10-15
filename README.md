@@ -6,7 +6,7 @@ Students write in a word processor that records how their work came together. In
 
 ![An instructor's view of a flagged submission](docs/img/instructor-report.png)
 
-Free and open source under the [Apache 2.0 license](LICENSE). It needs no institutional backend: the work lives in a file the student uploads to the LMS they already use. Based on [the spec](./Draftwork%20—%20File%20Format%20&%20Replay%20Viewer%20Spec.md). Instructors: start with the [guide](public/guide.html).
+Free and open source under the [Apache 2.0 license](LICENSE). It needs no institutional backend: the work lives in a file the student uploads to the LMS they already use. Based on [the spec](./Draftwork%20—%20File%20Format%20&%20Replay%20Viewer%20Spec.md). Instructors: start with the [guide](public/guide.html); students and instructors with a problem: [help](public/help.html). The file format is documented in [docs/FORMAT.md](docs/FORMAT.md); changes are in the [changelog](CHANGELOG.md).
 
 **Try it:** run it locally (below) or build the static demo (`npm run build`) and open **Try it** on the home page: write as a student, or explore a sample class with copied, retyped and tampered submissions.
 

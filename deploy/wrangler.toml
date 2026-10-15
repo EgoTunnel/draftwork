@@ -1,0 +1,8 @@
+# Command-line deployment of the timestamp relay to Cloudflare Workers:
+#   cd deploy
+#   npx wrangler login
+#   npx wrangler deploy
+name = "draftwork-relay"
+main = "relay-worker.js"
+compatibility_date = "2026-10-01"
+workers_dev = true

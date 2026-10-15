@@ -584,7 +584,12 @@ export class Editor {
     el.addEventListener('input', (e) => {
       if (!this.active() || this.composing || e.isComposing) return;
       if (!e.isTrusted) return this.refuse(e.inputType || 'synthetic-input');
-      if (this.domText() !== this.doc.text) this.syncFromDom(e.inputType || 'unknown');
+      if (this.domText() === this.doc.text) return;
+      // Keyboards, dictation and input methods always announce a change with beforeinput first.
+      // A change without one came from document.execCommand (devtools, extensions): refuse it.
+      const b = this.lastBefore;
+      if (b && b.type === e.inputType && Date.now() - b.t < 1000) this.syncFromDom(e.inputType || 'unknown');
+      else this.refuse(`unannounced-${e.inputType || 'input'}`);
     });
     el.addEventListener('compositionstart', () => {
       this.composing = true;
@@ -657,6 +662,7 @@ export class Editor {
       return;
     }
     const t = e.inputType;
+    this.lastBefore = { type: t, t: Date.now() };
     if (t === 'insertCompositionText' || this.composing) return;
     e.preventDefault();
     const { start, end } = this.getSel();

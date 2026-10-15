@@ -542,7 +542,7 @@ function csvCell(v) {
 
 async function exportCsv(anonymous) {
   const rows = [];
-  const flagIds = ['gap', 'untrusted', 'unusual', 'retype', 'transcription', 'away', 'fast', 'rhythm', 'overlap'];
+  const flagIds = ['gap', 'untrusted', 'unusual', 'retype', 'transcription', 'away', 'fast', 'rhythm', 'overlap', 'quotes'];
   for (const [, items] of groupsOf()) {
     for (const item of items) {
       const F = finalized(item);

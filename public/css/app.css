@@ -246,6 +246,9 @@ label.check[data-tip] { text-decoration: none; }
 .try-row p { margin: 2px 0 0; }
 .center { text-align: center; margin-top: 28px; }
 .guide h2 { margin-top: 1.6em; }
+.help details { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 8px; }
+.help details[open] summary { margin-bottom: 6px; }
+.help h2 { margin-top: 1.4em; }
 .guide .q-example { font-family: var(--serif); border-left: 3px solid var(--accent); padding: 4px 12px; margin: 8px 0; background: var(--surface); }
 .facts li[data-tip] { cursor: help; }
 

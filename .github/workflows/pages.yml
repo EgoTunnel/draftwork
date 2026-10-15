@@ -2,6 +2,7 @@
 # Settings → Pages → Source: "GitHub Actions".
 # Optional: Settings → Secrets and variables → Actions → Variables → DRAFTWORK_RELAY_URL
 # (the URL of your deployed relay, see docs/DEPLOY.md). Without it the site runs as a demo.
+# Optional: DRAFTWORK_OPERATOR, who runs this copy and how to reach them (shown on the privacy page).
 name: Publish site
 
 on:
@@ -29,6 +30,7 @@ jobs:
       - run: npm run build
         env:
           RELAY_URL: ${{ vars.DRAFTWORK_RELAY_URL }}
+          DRAFTWORK_OPERATOR: ${{ vars.DRAFTWORK_OPERATOR }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

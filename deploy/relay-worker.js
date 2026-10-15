@@ -20,7 +20,10 @@ export default {
     if (request.method !== 'POST') return new Response('method not allowed', { status: 405, headers: cors });
     const body = new Uint8Array(await request.arrayBuffer());
     if (body.length > 4096) return new Response('request too large', { status: 413, headers: cors });
-    for (const url of UPSTREAMS) {
+    // Start at a random service so a class's requests are shared between them; fall back in order.
+    const first = Math.floor(Math.random() * UPSTREAMS.length);
+    const order = UPSTREAMS.map((_, k) => UPSTREAMS[(first + k) % UPSTREAMS.length]);
+    for (const url of order) {
       try {
         const up = await fetch(url, {
           method: 'POST',
