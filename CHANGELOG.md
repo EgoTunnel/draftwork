@@ -24,6 +24,10 @@ Draftwork follows [semantic versioning](https://semver.org/). The file format is
   - the most productive return session.
   Five appear as before; up to four more are under **More questions**.
 
+- **Sample class:** four students who misuse AI in different ways (retyping a chatbot answer from a phone, typing up a chatbot draft from another window, an "AI humaniser" auto-typing tool, and laundering a chatbot essay through the sources panel), each with an AI-use disclosure to compare against the record.
+- **Class comparisons hold up when several students cheat:** "Written unusually quickly" also flags anyone under a third of the class's typical time, and "Unnaturally even typing" compares against the class median, so a few outliers don't hide each other.
+- The AI-use question asks about what the student said AI was used for (drafting, editing, ideas or feedback).
+
 ### Fixes
 - The "Where's this from?" prompt shows the pasted text cleanly over two lines.
 - **Replay scrolling:** the replay now keeps the writing in view as it plays, instead of jumping back to the top. Scrolling away while it plays is left alone, and a **Follow writing** button brings you back.

@@ -448,7 +448,12 @@ test('simulated class: flags land on the right writers and nowhere else', async 
   assert.equal(get('Dee Ctation').size, 0, 'dictation is never flagged as a large insertion');
   assert.ok(get('Sam Copier').has('overlap'), 'the copied paragraph is found');
   assert.ok(get('Blake Okafor').has('overlap'), 'and shown on the original too');
-  const composed = Object.entries(flagsOf).filter(([k]) => !/Ranscriber|Typer|Offline|Pered|Ctation|Copier|Blake/.test(k));
+  // Inappropriate AI use, four ways.
+  for (const id of ['pastes', 'retype', 'transcription', 'overlap']) assert.ok(get('Polly Phone').has(id), `Polly Phone: ${id}`);
+  for (const id of ['transcription', 'away', 'overlap']) assert.ok(get('Gene Rated').has(id), `Gene Rated: ${id}`);
+  for (const id of ['untrusted', 'speed', 'fast']) assert.ok(get('Hugh Maniser').has(id), `Hugh Maniser: ${id}`);
+  assert.ok(get('Cole Launder').has('quotes'), 'Cole Launder: quotes');
+  const composed = Object.entries(flagsOf).filter(([k]) => !/Ranscriber|Typer|Offline|Pered|Ctation|Copier|Blake|Polly|Gene|Hugh|Cole/.test(k));
   for (const [k, v] of composed) assert.equal(v.size, 0, `${k} should have no flags, got ${[...v]}`);
   assert.deepEqual([...get('Blake Okafor')], ['overlap']);
 });

@@ -105,7 +105,7 @@ npm run build
 
 Add `--relay <url>` to point real assignments at a deployed relay.
 
-To generate a demo class (composed essays, a transcriber, an autotyper, a copier, a dictation user, a stamp outage, a tampered file and an earlier assignment):
+To generate a demo class (composed essays, a transcriber, an autotyper, a copier, a dictation user, a stamp outage, a tampered file, an earlier assignment, and four inappropriate uses of AI: retyping a chatbot answer from a phone, typing up a chatbot draft from another window, an "AI humaniser" auto-typing tool, and a chatbot essay brought in through the sources panel):
 
 ```bash
 npm run simulate

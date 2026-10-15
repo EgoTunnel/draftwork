@@ -92,6 +92,8 @@ function describeEvent(e) {
   }
 }
 
+const nth = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'}`;
+
 function strip(values, me, priors, fmt) {
   const all = [...values, me, ...priors.map((p) => p.value)].filter(Number.isFinite);
   if (values.length < 2 || !Number.isFinite(me)) return null;
@@ -107,7 +109,7 @@ function strip(values, me, priors, fmt) {
   const below = values.filter((v) => v < me).length;
   const tip = `Dots: the ${values.length} submissions for this assignment. Filled blue: this file (${fmt(me)}).` +
     (priors.length ? ' Orange ring: this student’s earlier work.' : '');
-  return h('div', { 'data-tip': tip }, svg, h('div', { class: 'small muted' }, `${Math.round((below / values.length) * 100)}th percentile`));
+  return h('div', { 'data-tip': tip }, svg, h('div', { class: 'small muted' }, `${nth(Math.round((below / values.length) * 100))} percentile`));
 }
 
 function sectionHead(title, tip, right) {

@@ -67,6 +67,27 @@ const SOURCES = [
   'Winston Churchill, speech to the House of Commons, 28 October 1943',
 ];
 
+// Chatbot-style paragraphs for the AI-misuse writers. Two students who asked the same
+// chatbot get some identical paragraphs, which the shared-passage flag finds.
+const AI_TITLE = 'Cities and Memory: Exploring the Intersection of Urban Space and Collective Remembrance';
+const AI_PARAS = [
+  "In today's rapidly evolving urban landscape, cities serve as living repositories of collective memory. Every street, building, and public square carries traces of the people who came before us, creating a rich tapestry of shared experience. As urban planners and residents navigate the challenges of growth and change, it is essential to recognize that the physical fabric of a city is deeply intertwined with the stories, identities, and values of its communities. Understanding this connection is crucial for building a more inclusive future.",
+  'Furthermore, memory in the city is not static; it is a dynamic and multifaceted process. Monuments, street names, and historic districts are constantly reinterpreted by each new generation, reflecting shifting priorities and perspectives. For example, the preservation of older neighborhoods can foster a sense of continuity and belonging, while redevelopment may erase important cultural landmarks. Ultimately, the way a city remembers its past plays a pivotal role in shaping how its residents envision their shared future.',
+  'Another key aspect to consider is the role of literature in capturing urban memory. Writers such as Italo Calvino and Walter Benjamin have explored how cities exist not only as physical spaces but also as landscapes of the imagination. Through their works, readers gain valuable insight into the complex relationship between place and identity. These texts remind us that every city is, in a sense, a story waiting to be told, retold, and reimagined.',
+  'It is also important to acknowledge the challenges that arise when memory and development come into conflict. Gentrification, for instance, often displaces long-standing communities and replaces familiar spaces with generic structures. This process can lead to a profound sense of loss among residents whose personal histories are tied to these places. Therefore, policymakers must strike a delicate balance between economic growth and the preservation of cultural heritage.',
+  'In conclusion, cities are far more than collections of buildings and streets; they are vibrant archives of human experience. By recognizing the importance of collective memory, we can create urban environments that honor the past while embracing the future. As we continue to navigate an increasingly interconnected world, fostering a deeper understanding of the relationship between cities and memory will be essential for building resilient, inclusive, and meaningful communities.',
+  'Cities and memory are deeply intertwined concepts that have fascinated scholars, writers, and urban planners for centuries. At its core, the relationship between a city and its memories reflects the ways in which people make sense of their surroundings and their place within them. This essay will explore how cities preserve, transform, and sometimes erase memory, and why this dynamic matters for the communities that call these places home.',
+  'Moreover, technology has added a new dimension to how cities remember. Digital archives, social media, and online mapping tools allow residents to document and share their experiences in unprecedented ways. These platforms can amplify marginalized voices and preserve stories that might otherwise be forgotten. However, they also raise important questions about who controls these narratives and how accurately they represent the lived experiences of diverse communities.',
+  "Public spaces play a crucial role in the formation of collective memory. Parks, plazas, and markets serve as gathering places where shared experiences unfold, from everyday encounters to significant historical events. These spaces foster a sense of community and belonging that transcends individual differences. When such spaces are thoughtfully designed and maintained, they become powerful symbols of a city's identity and resilience in the face of change.",
+  'Additionally, it is worth noting that memory is often selective. Cities tend to celebrate certain histories while overlooking others, which can perpetuate inequality and exclusion. For instance, monuments frequently honor powerful figures while neglecting the contributions of ordinary people and marginalized groups. Addressing these gaps requires a concerted effort to diversify the stories that are told and to ensure that all members of a community see themselves reflected in its landscape.',
+  "The concept of urban memory also extends to the sensory experiences that define a place. The sounds of a bustling market, the smell of a local bakery, and the texture of cobblestone streets all contribute to a city's unique character. These sensory details evoke powerful emotional responses and help anchor personal memories to specific locations. In this way, the city becomes a living embodiment of the experiences of those who inhabit it.",
+  'Ultimately, the relationship between cities and memory highlights the importance of thoughtful urban planning. By engaging communities in meaningful dialogue and incorporating diverse perspectives, planners can ensure that development honors the past while meeting the needs of the present. This holistic approach not only strengthens the social fabric of a city but also fosters a deeper sense of connection and pride among its residents.',
+  'Throughout history, cities have served as both witnesses to and participants in the unfolding of human events. From ancient Rome to modern-day New York, urban centers have been shaped by wars, migrations, economic booms, and cultural movements. Each of these forces leaves an indelible mark on the cityscape, creating layers of history that coexist and interact in complex ways. Exploring these layers offers valuable insights into the broader human story.',
+  'Education also plays a significant role in sustaining urban memory. Schools, museums, and community organizations can introduce younger generations to the histories embedded in their surroundings, fostering a sense of stewardship and civic pride. Walking tours, oral history projects, and interactive exhibits make the past tangible and accessible. By nurturing this awareness, cities empower residents to become active participants in preserving and reinterpreting the stories that define their shared spaces.',
+  'In light of these considerations, it becomes clear that preserving urban memory is not merely an exercise in nostalgia. Rather, it is a vital process that enables communities to learn from the past, celebrate their achievements, and confront difficult truths. By embracing the rich and multifaceted nature of urban memory, cities can cultivate a sense of shared purpose that guides them toward a more equitable and sustainable future.',
+];
+const aiParas = (...k) => k.map((i) => AI_PARAS[i]);
+
 // ---------- simulated writer ----------
 
 class Sim {
@@ -275,14 +296,24 @@ function composer(sim, r, paras, { speed = 1, sessions = 2, revise = 0.25, quote
   sim.end();
 }
 
+// Types a title line and styles it as one.
+function typeTitle(sim, title, typing) {
+  sim.type(title, typing);
+  sim.ev({ k: 'para', a: 0, b: 1, set: { s: 'title' }, it: 'formatStyle' });
+  sim.type('\n', typing);
+}
+
 // A writer copying from another screen: steady, linear, glancing away between bursts.
-function transcriber(sim, r, paras) {
+function transcriber(sim, r, paras, { tryPaste = true, title = null } = {}) {
   const steady = { ikiMean: 165, ikiSd: 25, typo: 0.004 };
   sim.start();
   sim.wait(30_000);
   // tried to paste the first paragraph first
-  sim.sys({ k: 'paste_blocked', len: paras[0].length, it: 'insertFromPaste' });
-  sim.wait(r.range(15_000, 40_000));
+  if (tryPaste) {
+    sim.sys({ k: 'paste_blocked', len: paras[0].length, it: 'insertFromPaste' });
+    sim.wait(r.range(15_000, 40_000));
+  }
+  if (title) typeTitle(sim, title, steady);
   paras.forEach((para, pi) => {
     const words = ((pi ? '\n\n' : '') + para).split(/(?<=\s)/);
     let chunk = '';
@@ -308,6 +339,86 @@ function autotyper(sim, r, paras) {
   sim.start();
   sim.wait(5000);
   sim.type(paras.join('\n\n'), { ikiMean: 120, ikiSd: 2, typo: 0, minIki: 100 });
+  sim.end();
+}
+
+// Retyping a chatbot's answer from a phone: several tries at pasting it first, then steady
+// typing with no window switches, just short glances down every few words.
+function phoneCopier(sim, r, title, paras) {
+  const steady = { ikiMean: 140, ikiSd: 28, typo: 0.005 };
+  const answer = [title, ...paras].join('\n\n');
+  sim.start();
+  sim.wait(r.range(30_000, 60_000));
+  for (let k = 0; k < 4; k++) {
+    sim.sys({ k: 'paste_blocked', len: answer.length, it: 'insertFromPaste' });
+    sim.wait(r.range(2500, 9000));
+  }
+  sim.wait(r.range(20_000, 40_000));
+  typeTitle(sim, title, steady);
+  let n = r.int(8, 15);
+  for (const w of paras.join('\n\n').split(/(?<=\s)/)) {
+    sim.type(w, steady);
+    if (--n <= 0) {
+      sim.wait(r.range(1500, 4000));
+      n = r.int(8, 15);
+    }
+  }
+  sim.end();
+}
+
+// An "AI humaniser" tool: its first attempts to insert the text are refused, so it types the
+// text instead, with fake typos, far faster than a person.
+function humaniser(sim, r, title, paras) {
+  const tool = { ikiMean: 48, ikiSd: 20, typo: 0.02, minIki: 15 };
+  sim.start();
+  sim.wait(r.range(20_000, 40_000));
+  const len = [title, ...paras].join('\n\n').length;
+  for (let k = 0; k < 2; k++) {
+    sim.ev({ k: 'untrusted', it: 'insertText', len });
+    sim.wait(r.range(1500, 4000));
+  }
+  sim.wait(r.range(20_000, 40_000));
+  typeTitle(sim, title, tool);
+  paras.forEach((para, pi) => {
+    if (pi) sim.type('\n\n', tool);
+    for (const s of para.match(/[^.]+\.\s*/g) || [para]) {
+      sim.type(s, tool);
+      sim.wait(r.range(400, 1800));
+    }
+  });
+  sim.end();
+}
+
+// Brings a chatbot essay in through the sources panel, a paragraph at a time, swapping a
+// word here and there so it looks less copied.
+function launderer(sim, r, title, paras) {
+  const typing = { ikiMean: 180, ikiSd: 80, typo: 0.03 };
+  const swaps = [[/\bcrucial\b/, 'important'], [/\bessential\b/, 'key'], [/\bpivotal\b/, 'big'], [/\bvaluable\b/, 'useful'], [/\bvital\b/, 'needed'], [/\bprofound\b/, 'deep']];
+  sim.start();
+  sim.wait(r.range(20_000, 50_000));
+  const pasted = sim.ev({ k: 'paste_src', pane: 'src', p: 0, x: paras.join('\n\n') + '\n', it: 'insertFromPaste' });
+  sim.wait(r.range(5000, 12_000));
+  sim.ev({ k: 'cite', of: pasted.s, x: 'my research notes' });
+  sim.wait(r.range(10_000, 30_000));
+  typeTitle(sim, title, typing);
+  sim.type('This essay looks at how cities hold on to memory, and what happens when they forget.', typing);
+  for (const p of paras) {
+    sim.wait(r.range(8000, 25_000));
+    sim.type('\n\n', typing);
+    const start = sim.cursor;
+    sim.ev({ k: 'paste_in', from: 'src', p: start, x: p, it: 'insertFromPaste' });
+    sim.cursor += p.length;
+    for (const [re, word] of swaps) {
+      const m = p.match(re);
+      if (!m) continue;
+      sim.wait(r.range(3000, 9000));
+      sim.moveTo(start + m.index + m[0].length);
+      sim.backspace(m[0].length, 'deleteWordBackward');
+      sim.type(word, typing);
+      sim.moveTo(sim.text.length);
+      break;
+    }
+  }
   sim.end();
 }
 
@@ -394,7 +505,23 @@ export async function simulateClass({ students = 15, seed = 7 } = {}) {
   const idx = tampered.events.findIndex((e, i) => i > 200 && e.k === 'ins' && /[a-z]/.test(e.x || ''));
   tampered.events[idx].x = 'Z';
 
-  for (const f of files) f.file.header.process_notes = f.label === names[2] ? 'Outlined on paper first.' : '';
+  // Inappropriate uses of AI, each with the student's own disclosure.
+  await run('Polly Phone', config, cfgHash, 60, (sim, r) => phoneCopier(sim, r, AI_TITLE, aiParas(0, 1, 2, 3, 4)));
+  await run('Gene Rated', config, cfgHash, 62, (sim, r) => transcriber(sim, r, aiParas(5, 1, 6, 11, 13), { tryPaste: false, title: AI_TITLE }));
+  await run('Hugh Maniser', config, cfgHash, 64, (sim, r) => humaniser(sim, r, AI_TITLE, aiParas(7, 8, 12, 9, 10)));
+  await run('Cole Launder', config, cfgHash, 66, (sim, r) => launderer(sim, r, AI_TITLE, aiParas(11, 3, 0, 10)));
+  const aiUse = {
+    'Polly Phone': { used: 'none', detail: '' },
+    'Gene Rated': { used: 'drafting', detail: 'ChatGPT wrote a first draft from the prompt, then I typed it out and changed some words.' },
+    'Hugh Maniser': { used: 'editing', detail: 'A grammar checker.' },
+    'Cole Launder': { used: 'ideas', detail: 'Asked ChatGPT for an outline.' },
+  };
+  const notes = { [names[2]]: 'Outlined on paper first.', 'Polly Phone': 'Wrote it in one go the night before.' };
+
+  for (const f of files) {
+    f.file.header.process_notes = notes[f.label] || '';
+    if (aiUse[f.label]) f.file.header.ai_use = aiUse[f.label];
+  }
   return { config, cfgHash, prior, files };
 }
 

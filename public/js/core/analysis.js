@@ -41,7 +41,7 @@ export function snippet(text, words = 8) {
 }
 
 // A run of typing may start with a short title line; quote from the first real paragraph.
-const bodyOf = (t) => String(t).split('\n').find((l) => l.trim().length >= 40) || t;
+const bodyOf = (t) => String(t).split('\n').find((l) => l.trim().length >= 40 && /[.!?]["”’)]?\s|[.!?]["”’)]?$/.test(l.trim())) || t;
 
 // [start, end] of the first paragraph long enough to be the opening (skipping a title).
 function openingSpan(text) {
@@ -869,7 +869,7 @@ const BENIGN = {
   transcription: ['Writing from a detailed outline', 'Drafted on paper first and typed it up', 'A fluent typist writing about familiar material', 'A confident writer who revises in their head'],
   away: ['Checking notes or sources in another tab', 'Reading the prompt or rubric in another window'],
   fast: ['A fast writer', 'Drafted on paper first, or planned it in detail', 'Dictation through software Draftwork didn’t recognise as dictation'],
-  rhythm: ['A weak signal on its own: some practised typists are very regular'],
+  rhythm: ['A weak signal on its own: some practised typists are very regular', 'Typing up their own handwritten draft'],
   quotes: ['An assignment built around close reading or analysis of a text', 'Long block quotations the assignment asked for'],
   overlap: ['Both quoted the same source without using the sources panel', 'Wording from the assignment prompt or class notes', 'Collaboration the assignment allowed'],
   speed: ['A very fast typist (competitive typists can reach 150+ words a minute for short stretches)', 'Dictation software that types rather than using the browser’s own dictation'],
@@ -882,6 +882,7 @@ function flag(kind, id, title, reason, moments, benign, detail) {
 }
 
 const plural = (n, one, many = one + 's') => `${n.toLocaleString()} ${n === 1 ? one : many}`;
+const times = (n) => (n === 1 ? 'Once' : n === 2 ? 'Twice' : `${n} times`);
 
 // Combines one analysis with its class and the student's earlier files.
 // cohort: all analyses for the same assignment (including A). priors: the same student's earlier files.
@@ -921,7 +922,7 @@ export function finalize(A, { cohort = [A], priors = [] } = {}) {
   if (raw.untrusted.length) {
     const n = raw.untrusted.length;
     flags.push(flag('pattern', 'untrusted', 'Text inserted by a program',
-      `${n === 1 ? 'Once' : `${n} times`}, something other than the keyboard (a script, auto-typing tool or browser extension) tried to put text into the essay. Draftwork refused it${n === 1 ? '' : ' each time'}, so none of that text is in the submission.`,
+      `${times(n)}, something other than the keyboard (a script, auto-typing tool or browser extension) tried to put text into the essay. Draftwork refused it${n === 1 ? '' : ' each time'}, so none of that text is in the submission.`,
       raw.untrusted.slice(0, 5).map((u) => ({ i: u.i, label: `Refused at ${clock(u.i)}` })), BENIGN.untrusted,
       `Input events the browser marked as not coming from the user: ${[...new Set(raw.untrusted.map((u) => u.it).filter(Boolean))].join(', ') || 'unknown type'}.`));
   }
@@ -946,7 +947,7 @@ export function finalize(A, { cohort = [A], priors = [] } = {}) {
     if (odd.length) {
       const biggest = odd.reduce((a, b) => (b.len > a.len ? b : a));
       flags.push(flag('pattern', 'unusual', 'Large text entered in one go',
-        `${odd.length === 1 ? 'Once' : `${odd.length} times`}, a block of text (up to ${plural(biggest.len, 'character')}) appeared all at once instead of being typed, by ${[...new Set(odd.map((o) => o.label))].join(', ')}. People don’t normally enter that much text in one action, so this may have been a way around the paste block.`,
+        `${times(odd.length)}, a block of text (up to ${plural(biggest.len, 'character')}) appeared all at once instead of being typed, by ${[...new Set(odd.map((o) => o.label))].join(', ')}. People don’t normally enter that much text in one action, so this may have been a way around the paste block.`,
         odd.slice(0, 5).map((o) => ({ i: o.i, label: `${o.len} chars by ${o.label} at ${clock(o.i)}` })), BENIGN.unusual,
         `Single insertions over ${T.unusual_insert_chars} characters that weren’t typing, dictation, or an allowed paste.`));
     }
@@ -1054,23 +1055,27 @@ export function finalize(A, { cohort = [A], priors = [] } = {}) {
   // Class-relative flags switch on only above the minimum class size.
   const classOn = cohort.length >= T.min_class_size;
   if (classOn) {
+    // Medians and the median absolute deviation, so that several outliers in one class
+    // (say, a few students using the same tool) don't hide each other.
     const mpw = cohort.map((c) => c.metrics.minutesPerWord).filter(Number.isFinite);
     const cut = percentile(mpw, T.fast_percentile);
-    if (!mostlyDictated && Number.isFinite(A.metrics.minutesPerWord) && A.metrics.minutesPerWord <= cut) {
-      const median = percentile(mpw, 50);
+    const median = percentile(mpw, 50);
+    const me = A.metrics.minutesPerWord;
+    if (!mostlyDictated && Number.isFinite(me) && (me <= cut || me <= median * T.fast_ratio)) {
       flags.push(flag('pattern', 'fast', 'Written unusually quickly',
-        `${A.metrics.words} words in ${fmtDuration(A.metrics.activeMin * 60_000)} of writing time. That’s among the fastest ${T.fast_percentile}% of the class: the typical student took about ${fmtDuration(median * A.metrics.words * 60_000)} for the same length.`,
+        `${A.metrics.words} words in ${fmtDuration(A.metrics.activeMin * 60_000)} of writing time. The typical student in this class took about ${fmtDuration(median * A.metrics.words * 60_000)} for the same length${me <= median * T.fast_ratio ? `, ${me > 0 ? `over ${Math.floor(median / me)} times as long` : 'far longer'}` : ''}.`,
         [{ i: 0, label: 'Start of writing' }], BENIGN.fast,
-        `${A.metrics.minutesPerWord.toFixed(2)} minutes per word; class median ${median.toFixed(2)} (${cohort.length} submissions).`));
+        `${me.toFixed(3)} minutes per word; class median ${median.toFixed(3)} (${cohort.length} submissions). Flagged in the fastest ${T.fast_percentile}% of the class, or under ${Math.round(T.fast_ratio * 100)}% of the median time.`));
     }
     const others = cohort.filter((c) => c !== A).map((c) => c.metrics.ikiCv).filter(Number.isFinite);
-    const { mean, sd } = meanSd(others);
+    const mid = percentile(others, 50);
+    const spread = 1.4826 * percentile(others.map((v) => Math.abs(v - mid)), 50);
     const x = A.metrics.ikiCv;
-    if (Number.isFinite(x) && others.length && sd > 0 && x < mean - T.rhythm_z * sd && x < Math.min(...others)) {
+    if (Number.isFinite(x) && others.length >= 2 && spread > 0 && x < mid - T.rhythm_z * spread) {
       flags.push(flag('pattern', 'rhythm', 'Unnaturally even typing',
-        'The time between keystrokes is far more regular than anyone else’s in the class. People speed up and slow down as they type; simple auto-typing programs, which type pasted text for you, keep a near-constant beat.',
+        `The time between keystrokes is far more regular than for the rest of the class. People composing speed up and slow down as they think; copying text by hand, or an auto-typing program that types pasted text for you, keeps a much more constant beat.`,
         [{ i: 0, label: 'Start of writing' }], BENIGN.rhythm,
-        `Keystroke timing variation ${x.toFixed(2)}, class average ${mean.toFixed(2)}; flagged more than ${T.rhythm_z} standard deviations below the class and below every other student.`));
+        `Keystroke timing variation ${x.toFixed(2)}, class median ${mid.toFixed(2)}; flagged more than ${T.rhythm_z} robust standard deviations below the class.`));
     }
   }
 
@@ -1192,9 +1197,16 @@ function buildPrompts(A, flags) {
   if (ai && ai.used && ai.used !== 'none') {
     add({
       key: 'ai', title: 'AI use',
-      question: ai.detail
-        ? `You said you used AI: "${snippet(ai.detail, 12)}". Show me a part where it helped, and what you changed in what it gave you.`
-        : 'You said you used AI for this. What did you use it for, and which parts are most your own?',
+      question: (() => {
+        const said = ai.detail ? ` ("${snippet(ai.detail, 12)}")` : '';
+        switch (ai.used) {
+          case 'drafting': return `You said AI drafted some of the text${said}. Which parts, and what did you change in what it gave you?`;
+          case 'editing': return `You said you used AI for grammar or wording${said}. Show me a sentence it changed, and what it was before.`;
+          case 'ideas': return `You said you used AI for ideas${said}. What did it suggest, and what did you decide to do differently?`;
+          case 'feedback': return `You said you got feedback from AI${said}. What did it tell you, and what did you change because of it?`;
+          default: return `You said you used AI for this${said}. What did you use it for, and which parts are most your own?`;
+        }
+      })(),
     });
   }
 
