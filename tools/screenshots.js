@@ -158,7 +158,7 @@ try {
     await evaluate('document.querySelector("#editor").focus(); true');
     await send('Input.insertText', { text: 'The reading argues that ' });
     const box = await evaluate('(() => { const r = document.querySelector("#editor").lastChild.getBoundingClientRect(); return [r.right - 2, r.top + r.height / 2]; })()');
-    const data = { items: [{ mimeType: 'text/plain', data: 'the street is the river of the city, the place where memory runs.' }], dragOperationsMask: 1 };
+    const data = { items: [{ mimeType: 'text/plain', data: '// A standalone timestamp relay for serverless hosting (Cloudflare Workers, Deno Deploy, or any\n// runtime with the standard fetch API). Use it when the pages are on a static host and set the timestamp service to this worker.' }], dragOperationsMask: 1 };
     for (const type of ['dragEnter', 'dragOver', 'drop']) await send('Input.dispatchDragEvent', { type, x: box[0], y: box[1], data });
     await waitFor('!document.querySelector("#cite-bar").classList.contains("hidden")');
     await shot(`student-cite${sfx}`);

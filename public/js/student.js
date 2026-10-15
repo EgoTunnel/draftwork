@@ -957,7 +957,18 @@ function askCitation(e) {
   if (!prefs.citePrompt || !rec || !rec.inSession) return;
   citeFor = e;
   const text = (e.x || '').replace(/\s+/g, ' ').trim();
-  $('#cite-snippet').textContent = `“${text.length > 90 ? `${text.slice(0, 90)}…` : text}”`;
+  // Up to about two lines, cut at a word boundary, always with a closing quote.
+  let short = text;
+  const MAX = 90; // fits two lines of the prompt
+  if (text.length > MAX) {
+    const cut = text.slice(0, MAX);
+    const space = cut.lastIndexOf(' ');
+    short = `${(space > 50 ? cut.slice(0, space) : cut).replace(/[\s,.;:–—-]+$/, '')}…`;
+  }
+  const snip = $('#cite-snippet');
+  snip.textContent = `“${short}”`;
+  snip.dataset.tip = text.length > MAX ? (text.length > 600 ? `${text.slice(0, 600)}…` : text) : '';
+  if (!snip.dataset.tip) delete snip.dataset.tip;
   const url = text.match(/https?:\/\/\S+/);
   $('#cite-input').value = url ? url[0] : '';
   $('#cite-bar').classList.remove('hidden');
