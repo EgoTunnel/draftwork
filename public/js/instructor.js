@@ -29,12 +29,35 @@ function loadLibrary() {
   }
 }
 
-function saveLibrary(lib) {
+function saveLibrary(lib, { quiet = false } = {}) {
   try {
     localStorage.setItem(LIB_KEY, JSON.stringify(lib));
   } catch {
-    toast('Could not save to this browser’s storage; copy the code somewhere safe.');
+    toast('Could not save to this browser’s storage. Download a backup now.');
   }
+  if (!quiet) markChanged();
+}
+
+// ---------- backup state: what changed since the last backup ----------
+
+const BACKUP_KEY = 'draftwork.backup';
+function backupState() {
+  try {
+    return { rev: 0, backedUpRev: 0, at: null, ...JSON.parse(localStorage.getItem(BACKUP_KEY) || '{}') };
+  } catch {
+    return { rev: 0, backedUpRev: 0, at: null };
+  }
+}
+function setBackupState(patch) {
+  try {
+    localStorage.setItem(BACKUP_KEY, JSON.stringify({ ...backupState(), ...patch }));
+  } catch { /* storage unavailable */ }
+}
+function markChanged() {
+  setBackupState({ rev: backupState().rev + 1 });
+  // Ask the browser not to clear this site's data on its own (it can still be cleared by the user).
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  if (typeof renderStorageNote === 'function') renderStorageNote();
 }
 
 let library = loadLibrary();
@@ -46,9 +69,118 @@ async function addToLibrary(config, extra = {}) {
   const hash = await configHash(config);
   if (library.some((a) => a.hash === hash)) return { hash, existed: true };
   library.unshift({ hash, config, code: await encodeConfig(config), added: new Date().toISOString(), ...extra });
-  saveLibrary(library);
+  saveLibrary(library, { quiet: !!extra.demo });
   return { hash, existed: false };
 }
+
+// ---------- backup and restore ----------
+
+const realAssignments = () => library.filter((a) => !a.demo);
+
+function renderStorageNote() {
+  const s = backupState();
+  const pending = s.rev - s.backedUpRev;
+  const hasData = realAssignments().length > 0 || Object.keys(allNotes()).length > 0;
+  const when = s.at ? new Date(s.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : null;
+
+  // Status line in the Back up & restore card.
+  const status = $('#backup-status');
+  if (!hasData) status.textContent = 'Nothing to back up yet.';
+  else if (!when) status.innerHTML = '<span class="warn-text">Never backed up.</span> Your assignments exist only in this browser.';
+  else if (pending > 0) status.innerHTML = `<span class="warn-text">Changes since your last backup</span> (${escapeHtml(when)}).`;
+  else status.textContent = `Backed up ${when}. Nothing has changed since.`;
+
+  // Banner at the top of the page whenever there's something not backed up.
+  const note = $('#storage-note');
+  note.innerHTML = '';
+  if (!hasData || (when && pending <= 0)) {
+    note.classList.add('hidden');
+    return;
+  }
+  note.classList.remove('hidden');
+  note.append(
+    h('div', null,
+      h('strong', null, when ? 'You have changes that aren’t backed up. ' : 'Your assignments are saved only in this browser. '),
+      `They’re kept in this browser at ${location.host || 'this address'}, not online. Clearing browsing data, a private window, or another browser, computer or web address won’t have them. Download a backup to keep them safe, and restore it wherever you need them.`),
+    h('div', { class: 'row', style: 'margin-top:8px' },
+      h('button', { class: 'btn small primary', type: 'button', onclick: downloadBackup }, 'Download backup'),
+      h('button', { class: 'btn small ghost', type: 'button', onclick: () => { showTab('assign'); $('#backup-card').scrollIntoView({ behavior: 'smooth' }); } }, 'Backup options')));
+}
+
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function downloadBackup() {
+  const backup = {
+    type: 'draftwork-backup',
+    version: 1,
+    exported: new Date().toISOString(),
+    from: location.origin,
+    assignments: realAssignments().map((a) => ({ config: a.config, added: a.added })),
+    notes: allNotes(),
+  };
+  const date = new Date().toISOString().slice(0, 10);
+  download(new TextEncoder().encode(JSON.stringify(backup, null, 2)), `draftwork-backup-${date}.json`, 'application/json');
+  setBackupState({ backedUpRev: backupState().rev, at: backup.exported });
+  renderStorageNote();
+  toast(`Backup downloaded: ${backup.assignments.length} assignment${backup.assignments.length === 1 ? '' : 's'} and your check-in notes. Keep the file somewhere safe.`, 7000);
+}
+
+// Merges a backup into this browser. Nothing already here is removed.
+async function restoreBackup(text) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error('That file isn’t a Draftwork backup.');
+  }
+  if (!data || data.type !== 'draftwork-backup' || !Array.isArray(data.assignments)) throw new Error('That file isn’t a Draftwork backup.');
+  let added = 0;
+  let skipped = 0;
+  for (const a of data.assignments) {
+    try {
+      if (!a.config || a.config.v !== 1 || !a.config.nonce) throw new Error('bad');
+      const r = await addToLibrary(a.config, a.added ? { added: a.added } : {});
+      if (!r.existed) added++;
+    } catch {
+      skipped++;
+    }
+  }
+  // Notes: keep whichever copy was updated most recently.
+  const mine = allNotes();
+  let notes = 0;
+  for (const [key, n] of Object.entries(data.notes || {})) {
+    if (!n || typeof n !== 'object') continue;
+    if (!mine[key] || String(n.updated || '') > String(mine[key].updated || '')) {
+      mine[key] = n;
+      notes++;
+    }
+  }
+  try {
+    localStorage.setItem(NOTES_KEY, JSON.stringify(mine));
+  } catch {
+    throw new Error('This browser’s storage is full, so the notes couldn’t be restored.');
+  }
+  // What was just restored is, by definition, backed up.
+  setBackupState({ backedUpRev: backupState().rev, at: backupState().at || data.exported });
+  renderLibrary();
+  renderStorageNote();
+  if (loaded.length) reanalyze();
+  const total = data.assignments.length;
+  toast(`Restored from backup: ${added} new assignment${added === 1 ? '' : 's'} (${total - added - skipped} already here)` +
+    `${notes ? `, check-in notes for ${notes} submission${notes === 1 ? '' : 's'}` : ''}.${skipped ? ` ${skipped} couldn’t be read.` : ''}`, 7000);
+}
+
+$('#backup-btn').addEventListener('click', downloadBackup);
+$('#restore-input').addEventListener('change', async (ev) => {
+  const f = ev.target.files[0];
+  ev.target.value = '';
+  if (!f) return;
+  try {
+    await restoreBackup(await f.text());
+  } catch (err) {
+    toast(err.message, 6000);
+  }
+});
 
 function renderLibrary() {
   const box = $('#assign-list');
@@ -131,7 +263,7 @@ $('#new-form').addEventListener('submit', async (ev) => {
   $('#new-form').reset();
   for (const [k, v] of Object.entries(DEFAULT_THRESHOLDS)) $(`#th-${k}`).value = v;
   presetDemo();
-  toast(`Created "${config.title}". Use Copy link to share it with students.`);
+  toast(`Created "${config.title}". Use Copy link to share it with students, and Download backup to keep it safe.`, 7000);
   reanalyze();
 });
 
@@ -211,6 +343,7 @@ function setNotes(key, n) {
   } catch {
     toast('Could not save your notes in this browser.');
   }
+  markChanged();
 }
 
 // "3 of 4 asked · 1 follow-up" for the table.
@@ -252,6 +385,10 @@ async function addFiles(entries) {
     const { name, bytes } = files[k];
     status.textContent = `Checking ${k + 1} of ${files.length}…`;
     try {
+      if (/\.json$/i.test(name) && new TextDecoder().decode(bytes.subarray(0, 200)).includes('draftwork-backup')) {
+        await restoreBackup(new TextDecoder().decode(bytes));
+        continue;
+      }
       const file = await parseFile(bytes);
       const key = `${file.assignment.config_hash}:${normLabel(file.header.student_label)}:${file.final.hash}:${file.events.length}`;
       if (loaded.some((x) => x.key === key)) continue;
@@ -508,3 +645,4 @@ drop.addEventListener('drop', async (ev) => {
 })();
 
 renderLibrary();
+renderStorageNote();

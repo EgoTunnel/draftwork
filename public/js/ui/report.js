@@ -83,6 +83,7 @@ function describeEvent(e) {
     case 'session_start': return `Started writing, ${new Date(e.w).toLocaleString()}`;
     case 'session_end': return 'Stopped writing';
     case 'untrusted': return 'A script tried to change the text (refused)';
+    case 'cite': return `Noted where pasted text came from: ${q(x)}`;
     case 'fmt': return 'Changed text formatting';
     case 'para': return 'Changed paragraph formatting';
     default: return e.k;
@@ -454,8 +455,30 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
       h('button', { class: 'btn small', type: 'button', 'data-tip': 'Download as plain text', onclick: () => downloadTxt(final, title), html: `${ICONS.download}<span>Text</span>` }),
       h('button', { class: 'btn small', type: 'button', 'data-tip': 'Print the document', onclick: () => printDoc(final, style, title), html: `${ICONS.print}<span>Print</span>` }),
     ),
+    sourcesList(),
     h('div', { class: 'desk reader' }, documentPage(final, style)),
   );
+
+  // Text the student pasted from outside (into the sources panel, or the document where allowed),
+  // with the source details they gave.
+  function sourcesList() {
+    const cites = new Map();
+    for (const e of F.events) if (e.k === 'cite' && Number.isInteger(e.of)) cites.set(e.of, e.x || '');
+    const external = (e) => (e.it === 'insertFromPaste' || e.it === 'insertFromDrop') && (e.k === 'ins' || e.k === 'rep') && e.pane !== 'src';
+    const pastes = F.events.filter((e) => e.k === 'paste_src' || external(e) || cites.has(e.s));
+    if (!pastes.length) return '';
+    const cited = pastes.filter((e) => cites.has(e.s)).length;
+    return h('details', { class: 'card sources-card', open: true },
+      h('summary', { 'data-tip': 'Text pasted from outside Draftwork, with the source details the student gave when prompted' },
+        `Pasted sources (${pastes.length}${cited < pastes.length ? `, ${pastes.length - cited} without details` : ''})`),
+      h('ol', { class: 'sources-list' }, pastes.map((e) => {
+        const text = (e.x || '').replace(/\s+/g, ' ').trim();
+        return h('li', null,
+          h('div', { class: 'src-text' }, `“${text.length > 220 ? `${text.slice(0, 220)}…` : text}”`),
+          h('div', { class: 'src-cite' }, cites.has(e.s) ? h('span', null, 'Source: ', h('strong', null, cites.get(e.s))) : h('span', { class: 'muted' }, 'No source given'),
+            h('span', { class: 'muted' }, ` · ${e.pane === 'src' ? 'sources panel' : 'pasted into the document'} at ${fmtClock(tl.clock[e.s])}`)));
+      })));
+  }
 
   root.append(banner || '', head, tabs, panels.overview, panels.document,
     h('footer', { class: 'policy-footer' }, POLICY_FOOTER));

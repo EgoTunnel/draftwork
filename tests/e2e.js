@@ -4,7 +4,7 @@
 //
 //   node tests/e2e.js [--browser "C:\path\to\msedge.exe"] [--headed]
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, extname } from 'node:path';
@@ -341,6 +341,68 @@ try {
     await page.waitFor('document.querySelectorAll("#preview-body .checks li").length === 5', 20000);
     const marks = await page.eval('[...document.querySelectorAll("#preview-body .checks .mark")].map((m) => m.className)');
     assert(marks.every((m) => /pass|warn/.test(m)), `checks: ${marks.join(', ')}`);
+  });
+
+  await check('pasting from outside asks where it came from, and records the answer', async () => {
+    const open = newConfig({ title: 'Open paste', allowDemoTsa: true, paste: 'allow' });
+    const openHash = await configHash(open);
+    const p = await Page.open(cdpPort);
+    await p.goto(`${base}/student.html#a=${await encodeConfig(open)}`);
+    await p.waitFor('!document.querySelector("#new-card").classList.contains("hidden")');
+    await p.eval(`document.querySelector('#label-input').value = 'Citer'; document.querySelector('#consent-input').checked = true; document.querySelector('#start-btn').click(); true`);
+    await p.waitFor('!document.querySelector("#screen-writer").classList.contains("hidden")');
+    await p.eval('document.querySelector("#editor").focus(); true');
+    await p.type('Intro. ');
+    const box = await p.eval('(() => { const r = document.querySelector("#editor").lastChild.getBoundingClientRect(); return [r.right - 2, r.top + r.height / 2]; })()');
+    const data = { items: [{ mimeType: 'text/plain', data: 'Cities are the memory of a people. See https://example.org/memory' }], dragOperationsMask: 1 };
+    for (const type of ['dragEnter', 'dragOver', 'drop']) await p.send('Input.dispatchDragEvent', { type, x: box[0], y: box[1], data });
+    await p.waitFor('!document.querySelector("#cite-bar").classList.contains("hidden")');
+    const pre = await p.eval('document.querySelector("#cite-input").value');
+    assert(pre === 'https://example.org/memory', `link not prefilled: ${pre}`);
+    await p.eval(`document.querySelector('#cite-input').focus(); document.querySelector('#cite-input').select(); true`);
+    await p.type('Rossi, The Architecture of the City');
+    await p.key('Enter', { code: 'Enter', vk: 13, text: '\r' });
+    await p.waitFor('document.querySelector("#cite-bar").classList.contains("hidden")');
+    await sleep(5600);
+    const ev = await p.eval(draftEvents(openHash));
+    const paste = ev.find((e) => e.it === 'insertFromDrop' && e.k === 'ins');
+    const cite = ev.find((e) => e.k === 'cite');
+    assert(paste && cite && cite.of === paste.s && cite.x === 'Rossi, The Architecture of the City', `events: ${JSON.stringify(cite)}`);
+    await p.eval(`document.querySelector('#preview-btn').click(); true`);
+    await p.waitFor('document.querySelectorAll("#preview-body .checks li").length === 5', 20000);
+    await p.eval(`[...document.querySelectorAll('#preview-body .tab')].find((t) => t.textContent === 'Document').click(); true`);
+    const listed = await p.eval('document.querySelector("#preview-body .sources-list").textContent');
+    assert(listed.includes('Rossi'), `not listed for the instructor: ${listed}`);
+    await p.close(cdpPort);
+  });
+
+  await check('instructor: backup, wipe the browser, restore', async () => {
+    const dl = await mkdtemp(join(tmpdir(), 'draftwork-dl-'));
+    const p = await Page.open(cdpPort);
+    await p.send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: dl });
+    await p.goto(`${base}/instructor.html`);
+    await p.eval(`document.querySelector('#tab-assign').click(); document.querySelector('#f-title').value = 'Backed-up essay'; document.querySelector('#new-form').requestSubmit(); true`);
+    await p.waitFor('!document.querySelector("#storage-note").classList.contains("hidden")');
+    const warn = await p.eval('document.querySelector("#storage-note").textContent');
+    assert(/only in this browser/.test(warn), warn);
+    await p.eval(`document.querySelector('#backup-btn').click(); true`);
+    let file = null;
+    for (let i = 0; i < 50 && !file; i++) {
+      await sleep(100);
+      file = (await readdir(dl)).find((n) => /^draftwork-backup-.*\.json$/.test(n));
+    }
+    assert(file, 'no backup downloaded');
+    assert(await p.eval('document.querySelector("#storage-note").classList.contains("hidden")'), 'warning still shown after backup');
+    await p.eval('localStorage.clear(); true');
+    await p.goto(`${base}/instructor.html`);
+    await p.eval(`document.querySelector('#tab-assign').click(); true`);
+    assert(!(await p.eval('document.querySelector("#assign-list").textContent')).includes('Backed-up essay'), 'storage was not wiped');
+    const { root } = await p.send('DOM.getDocument', { depth: 0 });
+    const { nodeId } = await p.send('DOM.querySelector', { nodeId: root.nodeId, selector: '#restore-input' });
+    await p.send('DOM.setFileInputFiles', { nodeId, files: [join(dl, file)] });
+    await p.waitFor('document.querySelector("#assign-list").textContent.includes("Backed-up essay")');
+    await p.close(cdpPort);
+    await rm(dl, { recursive: true, force: true }).catch(() => {});
   });
 
   // ---------- the static demo site (no server-side relay at all) ----------

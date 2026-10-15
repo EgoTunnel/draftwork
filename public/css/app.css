@@ -407,6 +407,22 @@ details summary { cursor: pointer; font-weight: 550; }
 .thresholds label { font-weight: 400; margin: 0; text-decoration: none; cursor: default; }
 .assign-row { padding: 12px 0; border-top: 1px solid var(--border); }
 .filters { margin-bottom: 12px; gap: 6px; }
+.storage-note { background: var(--warn-soft); margin-bottom: 18px; }
+.cite-bar {
+  position: absolute; right: 24px; bottom: 16px; z-index: 14; width: min(360px, calc(100% - 32px));
+  background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .14); padding: 10px 12px; display: grid; gap: 6px;
+}
+.writer-body.with-sources .cite-bar { right: 336px; }
+.cite-bar label { margin: 0; }
+.cite-bar input { flex: 1; padding: 5px 8px; }
+.cite-snippet { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--serif); }
+.sources-card { margin-bottom: 14px; padding: 12px 16px; }
+.sources-card summary { font-weight: 600; }
+.sources-list { margin: 10px 0 0; padding-left: 22px; }
+.sources-list li { margin-bottom: 8px; }
+.sources-list .src-text { font-family: var(--serif); }
+.sources-list .src-cite { font-size: .88rem; }
 .chip { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 999px; padding: 3px 12px; font: inherit; font-size: .82rem; cursor: pointer; }
 .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
 .student-response { margin-top: 10px; padding: 8px 10px; border-radius: 6px; background: var(--accent-soft); font-size: .9rem; }
@@ -415,7 +431,8 @@ details summary { cursor: pointer; font-weight: 550; }
 .review-row select, .checkin select { width: auto; padding: 3px 8px; font-size: .85rem; }
 .checkin { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 8px; align-items: start; }
 .checkin textarea { font-size: .9rem; }
-.assign-row .row { gap: 6px; }
+.assign-row .row { gap: 6px; flex-wrap: nowrap; }
+.assign-row .row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------- viewer ---------- */
 .rp-head { margin-bottom: 14px; }

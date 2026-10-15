@@ -24,6 +24,7 @@ const icon = (sel, name) => {
   $(sel).innerHTML = ICONS[name];
 };
 icon('#nav-close', 'close');
+icon('#cite-skip', 'close');
 icon('#sources-close', 'close');
 icon('#symbols-close', 'close');
 icon('#find-prev', 'up');
@@ -51,7 +52,7 @@ const clips = new Map(); // text copied inside the sandbox -> { pane, runs }
 
 const PREF_KEY = 'draftwork.editor';
 const prefs = (() => {
-  const d = { zoom: 100, layout: 'page', nav: false, sources: true, spell: true, smartQuotes: true, autoLists: true };
+  const d = { zoom: 100, layout: 'page', nav: false, sources: true, spell: true, smartQuotes: true, autoLists: true, citePrompt: true };
   try {
     return { ...d, ...JSON.parse(localStorage.getItem(PREF_KEY) || '{}') };
   } catch {
@@ -302,6 +303,7 @@ function startWriting() {
         ? 'Use Ctrl+V to paste.'
         : 'Pasting from other sources is off for this assignment. You can paste quotes into the Sources panel.', 5000),
       onUntrusted: () => toast('A browser extension or script tried to change your text. The change was undone.', 6000),
+      onExternalPaste: (e) => askCitation(e),
       onAnnounce: (msg) => {
         const live = $('#sr-status');
         live.textContent = '';
@@ -591,6 +593,7 @@ function buildMenus() {
         { label: 'Check spelling', checked: () => prefs.spell, action: () => setPref('spell', !prefs.spell), tip: 'Underline misspelled words (uses your browser’s spell checker)' },
         { label: 'Smart quotes and dashes', checked: () => prefs.smartQuotes, action: () => setPref('smartQuotes', !prefs.smartQuotes), tip: 'Turn straight quotes into curly ones and -- into an em dash as you type' },
         { label: 'Automatic lists', checked: () => prefs.autoLists, action: () => setPref('autoLists', !prefs.autoLists), tip: 'Typing "- " or "1. " at the start of a line starts a list' },
+        { label: 'Ask where pasted text is from', checked: () => prefs.citePrompt, action: () => setPref('citePrompt', !prefs.citePrompt), tip: 'After you paste from another source, a small box asks for the author, title or link' },
       ],
     },
   ], { onClose: () => editor && editor.focus() }));
@@ -918,11 +921,55 @@ function commitSrc(it) {
   const op = diffOp(srcLast, srcEd.value);
   if (!op) return;
   let k = op.n === 0 ? 'ins' : op.x === '' ? 'del' : 'rep';
-  if (srcPendingPaste && op.x) k = 'paste_src';
+  const pasted = srcPendingPaste && op.x;
+  if (pasted) k = 'paste_src';
   srcPendingPaste = false;
-  rec.record({ k, p: op.p, n: op.n || undefined, x: op.x || undefined, it, pane: 'src' });
+  const e = rec.record({ k, p: op.p, n: op.n || undefined, x: op.x || undefined, it, pane: 'src' });
   srcLast = srcEd.value;
+  // Text copied from Draftwork itself doesn't need a citation.
+  if (pasted && !clips.has(op.x)) askCitation(e);
 }
+
+// ---------- citation prompt after pasting from outside ----------
+
+let citeFor = null;
+
+function askCitation(e) {
+  if (!prefs.citePrompt || !rec || !rec.inSession) return;
+  citeFor = e;
+  const text = (e.x || '').replace(/\s+/g, ' ').trim();
+  $('#cite-snippet').textContent = `“${text.length > 90 ? `${text.slice(0, 90)}…` : text}”`;
+  const url = text.match(/https?:\/\/\S+/);
+  $('#cite-input').value = url ? url[0] : '';
+  $('#cite-bar').classList.remove('hidden');
+}
+
+function closeCitation(refocus) {
+  $('#cite-bar').classList.add('hidden');
+  citeFor = null;
+  if (refocus) (prefs.sources && config.policy.sources_pane ? srcEd : ed).focus();
+}
+
+function saveCitation() {
+  const text = $('#cite-input').value.trim();
+  if (citeFor && text && rec && rec.inSession) {
+    rec.record({ k: 'cite', of: citeFor.s, x: text });
+    toast('Source noted.', 2500);
+  }
+  closeCitation(true);
+}
+
+$('#cite-save').addEventListener('click', saveCitation);
+$('#cite-skip').addEventListener('click', () => closeCitation(true));
+$('#cite-input').addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter') {
+    ev.preventDefault();
+    saveCitation();
+  } else if (ev.key === 'Escape') {
+    ev.preventDefault();
+    closeCitation(true);
+  }
+});
 
 function revertSrc() {
   const len = Math.abs(srcEd.value.length - srcLast.length);

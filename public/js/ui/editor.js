@@ -518,7 +518,11 @@ export class Editor {
       const extra = clip.pane === 'src' ? { from: 'src' } : {};
       return this.replace(start, end, t, it, { kind: 'paste_in', marks: clip.pane === 'src' ? 0 : clip.runs, extra });
     }
-    if (this.o.policy.paste === 'allow') return this.replace(start, end, t, it, { marks: 0 });
+    if (this.o.policy.paste === 'allow') {
+      this.replace(start, end, t, it, { marks: 0 });
+      if (this.o.onExternalPaste) this.o.onExternalPaste(this.rec.events[this.rec.events.length - 1]);
+      return;
+    }
     this.emit({ k: 'paste_blocked', len: t.length, it });
     if (this.o.onBlocked) this.o.onBlocked(it);
   }

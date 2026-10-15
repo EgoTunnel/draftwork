@@ -61,6 +61,12 @@ const QUOTES = [
   '"We shape our buildings; thereafter they shape us."',
 ];
 
+const SOURCES = [
+  'Lewis Mumford, The Culture of Cities (1938)',
+  'Walter Benjamin, “A Berlin Chronicle”',
+  'Winston Churchill, speech to the House of Commons, 28 October 1943',
+];
+
 // ---------- simulated writer ----------
 
 class Sim {
@@ -149,8 +155,13 @@ function composer(sim, r, paras, { speed = 1, sessions = 2, revise = 0.25, quote
   if (quote) {
     sim.wait(r.range(20_000, 60_000));
     const q = r.pick(QUOTES);
-    sim.ev({ k: 'paste_src', pane: 'src', p: 0, x: q + '\n', it: 'insertFromPaste' });
+    const pasted = sim.ev({ k: 'paste_src', pane: 'src', p: 0, x: q + '\n', it: 'insertFromPaste' });
     sim.quote = q;
+    // Most students answer the "Where's this from?" prompt.
+    if (r.chance(0.75)) {
+      sim.wait(r.range(4000, 15000));
+      sim.ev({ k: 'cite', of: pasted.s, x: SOURCES[QUOTES.indexOf(q)] });
+    }
   }
   // a title, styled as one
   sim.wait(r.range(5_000, 20_000));

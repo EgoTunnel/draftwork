@@ -19,6 +19,7 @@
   </header>
 
   <main class="page">
+    <div class="notice storage-note hidden" id="storage-note" role="status"></div>
     <!-- Submissions -->
     <section id="view-review" role="tabpanel">
       <div id="review-list">
@@ -97,14 +98,23 @@
           <div><button class="btn primary" type="submit">Create</button></div>
         </form>
         <div class="stack">
-          <div class="card stack">
-            <h2>Import</h2>
-            <div class="row">
-              <input type="text" id="import-code" placeholder="Assignment code or student link" aria-label="Assignment code or student link" style="flex:1">
-              <button class="btn" id="import-btn" type="button" data-tip="Add an assignment created in another browser, so its submissions can be checked">Import</button>
-            </div>
-          </div>
           <div class="card" id="assign-list"></div>
+          <div class="card stack" id="backup-card">
+            <h2>Back up &amp; restore</h2>
+            <p class="small" id="backup-status" style="margin:0"></p>
+            <div class="row">
+              <button class="btn primary" id="backup-btn" type="button" data-tip="Download one file with all your assignments and check-in notes. Keep it somewhere safe, like your course folder.">Download backup</button>
+              <label class="btn" for="restore-input" data-tip="Load a backup file, on this or another computer. Nothing you already have is removed.">Restore from backup…</label>
+              <input type="file" id="restore-input" accept=".json,application/json" class="hidden">
+            </div>
+            <details>
+              <summary class="small">Add a single assignment from its code or link</summary>
+              <div class="row" style="margin-top:8px">
+                <input type="text" id="import-code" placeholder="Assignment code or student link" aria-label="Assignment code or student link" style="flex:1">
+                <button class="btn" id="import-btn" type="button" data-tip="Add an assignment someone else created, so its submissions can be checked">Add</button>
+              </div>
+            </details>
+          </div>
         </div>
       </div>
     </section>

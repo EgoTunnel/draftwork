@@ -39,6 +39,7 @@
       <div class="card stack hidden" id="resume-card">
         <h2>Continue your draft</h2>
         <p class="muted" id="resume-info"></p>
+        <p class="small muted" style="margin:0" data-tip="Clearing browsing data, a private window, or using another browser or computer won’t have this draft. The file you save is your backup and your submission.">Your draft is kept in this browser only. Save your file often: it’s your backup.</p>
         <div class="row">
           <button class="btn primary" id="resume-btn" type="button">Continue writing</button>
           <button class="btn" id="resume-save" type="button" data-tip="Download your submission file without opening the draft">Save file</button>
@@ -131,6 +132,17 @@
           <input type="text" id="replace-input" placeholder="Replace with" aria-label="Replace with" maxlength="50">
           <button class="btn small" type="button" id="replace-one">Replace</button>
           <button class="btn small" type="button" id="replace-all">All</button>
+        </div>
+      </div>
+      <div class="cite-bar hidden" id="cite-bar" role="group" aria-labelledby="cite-label">
+        <div class="row" style="justify-content:space-between">
+          <label id="cite-label" for="cite-input" data-tip="Optional. Your instructor sees this next to the pasted text, so you don’t have to remember later.">Where’s this from?</label>
+          <button class="icon-btn" type="button" id="cite-skip" aria-label="Skip" data-tip="Skip (Esc)"></button>
+        </div>
+        <div class="small muted cite-snippet" id="cite-snippet"></div>
+        <div class="row">
+          <input type="text" id="cite-input" maxlength="300" placeholder="Author, title, page or link" autocomplete="off">
+          <button class="btn small primary" type="button" id="cite-save">Add</button>
         </div>
       </div>
       <aside class="sources hidden" id="sources-pane" aria-label="Sources">

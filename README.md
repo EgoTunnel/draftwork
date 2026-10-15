@@ -40,6 +40,7 @@ No dependencies; Node 20+.
   - reminders to save the file;
   - a warning before closing unsaved work;
   - one tab per draft.
+- **Sources:** after a paste from outside, a small "Where's this from?" prompt records the citation (`cite` event). Instructors see pasted sources and their citations on the Document tab.
 - **Openness:**
   - a short consent notice before starting, and a privacy page (`privacy.html`);
   - **Preview** shows exactly what the instructor sees, and students can add a note to any flag;
@@ -48,6 +49,7 @@ No dependencies; Node 20+.
 **Instructor viewer** (`instructor.html`)
 
 - **Assignments:** title, paste policy, sources panel, word limits, due date, AI disclosure, flag thresholds, timestamp services, and "test assignment" for demo timestamps.
+- **Backup & restore:** assignments and check-in notes live in the browser, so one file backs up everything and restores it on any computer. A banner warns whenever something isn't backed up, and the page asks the browser not to clear its storage automatically.
 - **Opening submissions:** single files, or the **zip your LMS produces** (Canvas, Moodle, Blackboard, Brightspace). The name the LMS gives each student is shown, with a warning when it doesn't match the file.
 - **Submission list:** filters (flagged, integrity failed, not checked in, follow-up) and check-in progress.
 - **Overview tab:** integrity checks, flags (including **shared passages** between students), the writing process, questions to ask, and a replay.

@@ -140,6 +140,29 @@ try {
   await shot(`instructor-questions${sfx}`);
   await evaluate(`window.scrollTo(0, 0); [...document.querySelectorAll('.tab')].find((t) => t.textContent === 'Document').click(); true`);
   await shot(`instructor-document${sfx}`);
+
+  if (args.includes('--extra')) {
+    // Assignments page with an assignment that isn't backed up yet.
+    await go(`${base}/instructor.html`);
+    await evaluate(`document.querySelector('#tab-assign').click(); document.querySelector('#f-title').value = 'Essay 3: Field Notes'; document.querySelector('#new-form').requestSubmit(); true`);
+    await waitFor('!document.querySelector("#storage-note").classList.contains("hidden")');
+    await sleep(4500); // let the toast fade
+    await shot(`instructor-assignments${sfx}`);
+    // The citation prompt, after dropping outside text into an assignment that allows pasting.
+    const { newConfig, encodeConfig } = await import('../public/js/core/format.js');
+    const open = newConfig({ title: 'Reading response', allowDemoTsa: true, paste: 'allow' });
+    await go(`${base}/student.html#a=${await encodeConfig(open)}`);
+    await waitFor('!document.querySelector("#new-card").classList.contains("hidden")');
+    await evaluate(`document.querySelector('#label-input').value = 'Sam Student'; document.querySelector('#consent-input').checked = true; document.querySelector('#start-btn').click(); true`);
+    await waitFor('!document.querySelector("#screen-writer").classList.contains("hidden")');
+    await evaluate('document.querySelector("#editor").focus(); true');
+    await send('Input.insertText', { text: 'The reading argues that ' });
+    const box = await evaluate('(() => { const r = document.querySelector("#editor").lastChild.getBoundingClientRect(); return [r.right - 2, r.top + r.height / 2]; })()');
+    const data = { items: [{ mimeType: 'text/plain', data: 'the street is the river of the city, the place where memory runs.' }], dragOperationsMask: 1 };
+    for (const type of ['dragEnter', 'dragOver', 'drop']) await send('Input.dispatchDragEvent', { type, x: box[0], y: box[1], data });
+    await waitFor('!document.querySelector("#cite-bar").classList.contains("hidden")');
+    await shot(`student-cite${sfx}`);
+  }
 } finally {
   if (ws) ws.close();
   browser.kill();
