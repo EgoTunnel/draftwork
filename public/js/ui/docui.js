@@ -1,6 +1,6 @@
 // Showing, printing and downloading a finished document.
 import { h, download } from './dom.js';
-import { docHtml, docStyleCss, docStyle, toDocx, toPlainText } from '../core/export.js';
+import { docHtml, docStyleCss, docStyle, toDocx, toPlainText, headerLine, pageNumMode } from '../core/export.js';
 
 const slug = (s) => String(s || 'document').replace(/[\\/:*?"<>|]+/g, '').trim().slice(0, 80) || 'document';
 
@@ -15,14 +15,28 @@ export function downloadTxt(doc, title) {
 // A read-only page showing the document as it was formatted.
 export function documentPage(doc, style) {
   const page = h('div', { class: 'sheet', style: docStyleCss(style) });
+  const line = headerLine(style, 1);
+  if (line) page.append(h('div', { class: 'sheet-header' }, line));
   page.append(h('div', { class: 'doc', html: docHtml(doc) }));
   return page;
 }
 
+const cssString = (s) => `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]+/g, ' ')}"`;
+
 // Prints only the document, in a hidden frame that uses the app's stylesheet.
+// The header and page numbers go in the printed page's margins.
 export function printDoc(doc, style, title) {
-  const numbers = docStyle(style).pageNumbers ? '<style>@page { @bottom-center { content: counter(page); font: 10pt serif; } }</style>' : '';
-  printHtml(`<div class="sheet print-sheet" style="${docStyleCss(style).replace(/"/g, '&quot;')}"><div class="doc">${docHtml(doc)}</div></div>`, title, 'print-body', numbers);
+  const s = docStyle(style);
+  const mode = pageNumMode(s);
+  const text = String(s.headerText || '').trim();
+  const boxes = [];
+  if (text || mode === 'header') {
+    const content = [text ? cssString(mode === 'header' ? `${text} ` : text) : '', mode === 'header' ? 'counter(page)' : ''].filter(Boolean).join(' ');
+    boxes.push(`@top-right { content: ${content}; font: ${s.size}pt serif; }`);
+  }
+  if (mode === 'footer') boxes.push(`@bottom-center { content: counter(page); font: ${s.size}pt serif; }`);
+  const head = boxes.length ? `<style>@page { ${boxes.join(' ')} }</style>` : '';
+  printHtml(`<div class="sheet print-sheet" style="${docStyleCss(style).replace(/"/g, '&quot;')}"><div class="doc">${docHtml(doc)}</div></div>`, title, 'print-body', head);
 }
 
 // Prints an HTML fragment in a hidden frame styled by the app's stylesheet (light theme).

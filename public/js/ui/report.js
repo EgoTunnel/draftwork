@@ -4,7 +4,7 @@ import { h, s, toast } from './dom.js';
 import { productionGraph, indexAtClock } from './graph.js';
 import { stateAt, fmtClock, fmtDuration, POLICY_FOOTER } from '../core/analysis.js';
 import { countWords, finalDoc } from '../core/format.js';
-import { paragraphParts, docStyleCss, toPlainText, toClipboardHtml } from '../core/export.js';
+import { paragraphParts, docStyleCss, toPlainText, toClipboardHtml, notesHtml } from '../core/export.js';
 import { documentPage, downloadDocx, downloadTxt, printDoc, printHtml } from './docui.js';
 import { ICONS } from './icons.js';
 import { fingerprintCode } from '../core/canon.js';
@@ -70,7 +70,8 @@ function describeEvent(e) {
   const x = e.x || '';
   const where = e.pane === 'src' ? ' (sources)' : '';
   switch (e.k) {
-    case 'ins': return `Typed ${q(x)}${where}`;
+    case 'ins': return x === '￼' ? 'Added a footnote' : `Typed ${q(x)}${where}`;
+    case 'note': return `Edited footnote ${(e.i || 0) + 1}${e.x ? `: ${q(x)}` : ''}`;
     case 'del': return `Deleted ${e.n} character${e.n === 1 ? '' : 's'}${where}`;
     case 'rep': return `Replaced ${e.n} character${e.n === 1 ? '' : 's'} with ${q(x)}${where}`;
     case 'paste_in': return e.from === 'src' ? `Pasted ${x.length} characters from sources` : `Moved or pasted ${x.length} of their own characters`;
@@ -378,7 +379,7 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
         caret: tl.cursor[idx],
         caretHtml,
       });
-      doc.innerHTML = `<div class="doc" style="${replayStyle}">${parts.map((p) => `<div class="${p.cls}"${p.label ? ` data-label="${p.label}"` : ''}>${p.html}</div>`).join('')}</div>`;
+      doc.innerHTML = `<div class="doc" style="${replayStyle}">${parts.map((p) => `<div class="${p.cls}"${p.label ? ` data-label="${p.label}"` : ''}>${p.html}</div>`).join('')}${notesHtml(st.doc)}</div>`;
       if (!st.text.length) doc.firstChild.insertAdjacentHTML('beforeend', '<div class="muted">(empty page)</div>');
     }
     const caret = doc.querySelector('.caret');

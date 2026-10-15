@@ -1,5 +1,5 @@
 // Document output: shared HTML rendering, plain text and .docx export. No DOM needed.
-import { MARKS, HEADING_STYLES } from './doc.js';
+import { MARKS, HEADING_STYLES, FOOTNOTE, FONT_KEYS, SIZE_LIST, fontOf, sizeOf } from './doc.js';
 
 export const FONTS = {
   times: { label: 'Times New Roman', css: '"Times New Roman", Times, "Liberation Serif", serif', docx: 'Times New Roman' },
@@ -11,11 +11,36 @@ export const FONTS = {
   verdana: { label: 'Verdana', css: 'Verdana, Geneva, sans-serif', docx: 'Verdana' },
   courier: { label: 'Courier New', css: '"Courier New", Courier, monospace', docx: 'Courier New' },
 };
-export const SIZES = [9, 10, 10.5, 11, 12, 13, 14, 16, 18];
+export const SIZES = SIZE_LIST.slice(1);
 export const LINE_SPACINGS = [1, 1.15, 1.5, 2];
-export const DEFAULT_DOC_STYLE = { font: 'times', size: 12, line: 1.15, after: true, firstLine: false, pageNumbers: true };
+export const DEFAULT_DOC_STYLE = { font: 'times', size: 12, line: 1.15, after: true, firstLine: false, pageNumbers: true, headerText: '' };
 
 export const docStyle = (s) => ({ ...DEFAULT_DOC_STYLE, ...(s || {}) });
+
+// Where page numbers go: 'footer' (bottom centre), 'header' (top right, after the header text) or 'none'.
+export function pageNumMode(s) {
+  s = docStyle(s);
+  if (s.pageNum) return s.pageNum;
+  return s.pageNumbers === false ? 'none' : 'footer';
+}
+
+// The header line as shown on page n (n = null leaves the number out).
+export function headerLine(s, n = 1) {
+  s = docStyle(s);
+  const text = String(s.headerText || '').trim();
+  const num = pageNumMode(s) === 'header' && n != null ? String(n) : '';
+  return [text, num].filter(Boolean).join(' ');
+}
+
+// Inline style for a mark's own font and size (none when they follow the document).
+export function markStyle(m) {
+  const parts = [];
+  const f = FONT_KEYS[fontOf(m)];
+  if (f && FONTS[f]) parts.push(`font-family:${FONTS[f].css.replace(/"/g, "'")}`);
+  const sz = SIZE_LIST[sizeOf(m)];
+  if (sz) parts.push(`font-size:${sz}pt`);
+  return parts.join(';');
+}
 
 export function docStyleCss(s) {
   s = docStyle(s);
@@ -76,6 +101,7 @@ export function paragraphParts(doc, opts = {}) {
     start = j + 1;
   }
   bounds.push([start, text.length]);
+  let noteNo = 0;
   return bounds.map(([s, e], k) => {
     let html = '';
     let i = s;
@@ -84,11 +110,19 @@ export function paragraphParts(doc, opts = {}) {
       if (caretHere && i === opts.caret) html += opts.caretHtml;
       const m = marks[i];
       const extra = opts.charClass ? opts.charClass(i) : '';
+      // A footnote anchor: the character stays in the text (so offsets map 1:1), shown as its number.
+      if (text[i] === FOOTNOTE) {
+        noteNo++;
+        html += `<span class="fn-ref${extra ? ` ${extra}` : ''}" data-n="${noteNo}">${FOOTNOTE}</span>`;
+        i++;
+        continue;
+      }
       let j = i + 1;
-      while (j < e && marks[j] === m && (!opts.charClass || opts.charClass(j) === extra) && !(caretHere && j === opts.caret)) j++;
+      while (j < e && marks[j] === m && text[j] !== FOOTNOTE && (!opts.charClass || opts.charClass(j) === extra) && !(caretHere && j === opts.caret)) j++;
       const cls = [markClasses(m), extra].filter(Boolean).join(' ');
+      const style = markStyle(m);
       const chunk = esc(text.slice(i, j));
-      html += cls ? `<span class="${cls}">${chunk}</span>` : chunk;
+      html += cls || style ? `<span${cls ? ` class="${cls}"` : ''}${style ? ` style="${style}"` : ''}>${chunk}</span>` : chunk;
       i = j;
     }
     if (caretHere && opts.caret === e) html += opts.caretHtml;
@@ -100,11 +134,28 @@ export function paragraphParts(doc, opts = {}) {
 export function docHtml(doc, opts) {
   return paragraphParts(doc, opts)
     .map((p) => `<div class="${p.cls}"${p.label ? ` data-label="${esc(p.label)}"` : ''}>${p.html}</div>`)
-    .join('');
+    .join('') + notesHtml(doc);
 }
 
-// Plain text, with list labels and indents written out.
+// The footnotes, as a numbered list after the text (pages aren't laid out on screen).
+export function notesHtml(doc) {
+  if (!doc.notes || !doc.notes.length) return '';
+  return `<div class="doc-notes"><ol>${doc.notes.map((n) => `<li>${esc(n) || '&nbsp;'}</li>`).join('')}</ol></div>`;
+}
+
+// Plain text, with list labels and indents written out, footnotes as [1] and listed at the end.
 export function toPlainText(doc, from = 0, to = doc.text.length, eol = '\n') {
+  const whole = from === 0 && to === doc.text.length;
+  let n = 0;
+  const lines = plainLines(doc, from, to).map((l) => l.replace(new RegExp(FOOTNOTE, 'g'), () => (whole ? `[${++n}]` : '')));
+  if (whole && doc.notes && doc.notes.length) {
+    lines.push('', 'Notes');
+    doc.notes.forEach((t, i) => lines.push(`${i + 1}. ${t}`));
+  }
+  return lines.join(eol);
+}
+
+function plainLines(doc, from, to) {
   const labels = listLabels(doc.paras);
   const lines = [];
   let start = 0;
@@ -119,7 +170,7 @@ export function toPlainText(doc, from = 0, to = doc.text.length, eol = '\n') {
     const prefix = whole ? '    '.repeat(p.in) + (labels[k] ? labels[k] + ' ' : '') : '';
     lines.push(prefix + piece);
   });
-  return lines.join(eol);
+  return lines;
 }
 
 // HTML for the clipboard, with inline styles so word processors keep the formatting.
@@ -135,8 +186,11 @@ export function toClipboardHtml(doc, from, to) {
     const a = doc.paras[k];
     let inner = '';
     for (let i = Math.max(s, from); i < Math.min(e, to); i++) {
+      if (doc.text[i] === FOOTNOTE) continue;
       const m = doc.marks[i];
       let ch = esc(doc.text[i]);
+      const style = markStyle(m);
+      if (style) ch = `<span style="${style}">${ch}</span>`;
       if (m & MARKS.b) ch = `<b>${ch}</b>`;
       if (m & MARKS.i) ch = `<i>${ch}</i>`;
       if (m & MARKS.u) ch = `<u>${ch}</u>`;
@@ -229,19 +283,28 @@ const xml = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>'
 const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
 const STYLE_IDS = { p: 'Normal', title: 'Title', h1: 'Heading1', h2: 'Heading2', h3: 'Heading3', quote: 'Quote', bib: 'Bibliography' };
 
-function runXml(text, m) {
+function runProps(m) {
   const pr = [];
+  const f = FONTS[FONT_KEYS[fontOf(m)]];
+  if (f) pr.push(`<w:rFonts w:ascii="${xml(f.docx)}" w:hAnsi="${xml(f.docx)}" w:cs="${xml(f.docx)}"/>`);
   if (m & MARKS.b) pr.push('<w:b/>');
   if (m & MARKS.i) pr.push('<w:i/>');
   if (m & MARKS.s) pr.push('<w:strike/>');
-  if (m & MARKS.u) pr.push('<w:u w:val="single"/>');
+  const sz = SIZE_LIST[sizeOf(m)];
+  if (sz) pr.push(`<w:sz w:val="${Math.round(sz * 2)}"/><w:szCs w:val="${Math.round(sz * 2)}"/>`);
   if (m & MARKS.hl) pr.push('<w:highlight w:val="yellow"/>');
+  if (m & MARKS.u) pr.push('<w:u w:val="single"/>');
   if (m & MARKS.sup) pr.push('<w:vertAlign w:val="superscript"/>');
   else if (m & MARKS.sub) pr.push('<w:vertAlign w:val="subscript"/>');
-  const rPr = pr.length ? `<w:rPr>${pr.join('')}</w:rPr>` : '';
-  const parts = text.split('\t').map((t) => (t ? `<w:t xml:space="preserve">${xml(t)}</w:t>` : ''));
-  return `<w:r>${rPr}${parts.join('<w:tab/>')}</w:r>`;
+  return pr.length ? `<w:rPr>${pr.join('')}</w:rPr>` : '';
 }
+
+function runXml(text, m) {
+  const parts = text.split('\t').map((t) => (t ? `<w:t xml:space="preserve">${xml(t)}</w:t>` : ''));
+  return `<w:r>${runProps(m)}${parts.join('<w:tab/>')}</w:r>`;
+}
+
+const PAGE_FIELD = '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>';
 
 export function toDocx(doc, style, title = 'Document') {
   const s = docStyle(style);
@@ -250,6 +313,7 @@ export function toDocx(doc, style, title = 'Document') {
   const nums = []; // [numId, abstractId, restart]
   let currentOl = null;
   let start = 0;
+  let noteNo = 0;
   const body = [];
   doc.text.split('\n').forEach((line, k) => {
     const a = doc.paras[k];
@@ -278,8 +342,14 @@ export function toDocx(doc, style, title = 'Document') {
     let i = start;
     const end = start + line.length;
     while (i < end) {
+      if (doc.text[i] === FOOTNOTE) {
+        noteNo++;
+        runs += `<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="${noteNo}"/></w:r>`;
+        i++;
+        continue;
+      }
       let j = i + 1;
-      while (j < end && doc.marks[j] === doc.marks[i]) j++;
+      while (j < end && doc.marks[j] === doc.marks[i] && doc.text[j] !== FOOTNOTE) j++;
       runs += runXml(doc.text.slice(i, j), doc.marks[i]);
       i = j;
     }
@@ -299,9 +369,32 @@ export function toDocx(doc, style, title = 'Document') {
 <w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="heading 3"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:keepNext/><w:spacing w:before="200" w:after="60"/><w:ind w:firstLine="0"/><w:outlineLvl w:val="2"/></w:pPr><w:rPr><w:b/><w:sz w:val="${Math.round(half * 1.1)}"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:basedOn w:val="Normal"/><w:qFormat/><w:pPr><w:ind w:left="720" w:right="720" w:firstLine="0"/></w:pPr><w:rPr><w:i/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="Bibliography"><w:name w:val="Bibliography"/><w:basedOn w:val="Normal"/><w:qFormat/><w:pPr><w:ind w:left="720" w:hanging="720"/></w:pPr></w:style>
+<w:style w:type="paragraph" w:styleId="FootnoteText"><w:name w:val="footnote text"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:ind w:firstLine="0"/></w:pPr><w:rPr><w:sz w:val="${Math.max(16, half - 4)}"/></w:rPr></w:style>
+<w:style w:type="character" w:styleId="FootnoteReference"><w:name w:val="footnote reference"/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="Header"><w:name w:val="header"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:after="0"/><w:ind w:firstLine="0"/></w:pPr></w:style>
+<w:style w:type="paragraph" w:styleId="Footer"><w:name w:val="footer"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:after="0"/><w:ind w:firstLine="0"/></w:pPr></w:style>
 </w:styles>`;
+
+  // Header (text, plus the page number if it goes there) and footer (page number at the bottom).
+  const mode = pageNumMode(s);
+  const headerText = String(s.headerText || '').trim();
+  const hasHeader = !!headerText || mode === 'header';
+  const hasFooter = mode === 'footer';
+  const header = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:hdr ${W}><w:p><w:pPr><w:pStyle w:val="Header"/><w:jc w:val="right"/></w:pPr>${headerText ? `<w:r><w:t xml:space="preserve">${xml(headerText)}${mode === 'header' ? ' ' : ''}</w:t></w:r>` : ''}${mode === 'header' ? PAGE_FIELD : ''}</w:p></w:hdr>`;
   const footer = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:ftr ${W}><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p></w:ftr>`;
+<w:ftr ${W}><w:p><w:pPr><w:pStyle w:val="Footer"/><w:jc w:val="center"/></w:pPr>${PAGE_FIELD}</w:p></w:ftr>`;
+
+  // Footnotes: Word expects the two separator notes (ids -1 and 0) before the real ones.
+  const notes = doc.notes || [];
+  const footnotes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:footnotes ${W}>
+<w:footnote w:type="separator" w:id="-1"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:separator/></w:r></w:p></w:footnote>
+<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>
+${notes.map((t, i) => `<w:footnote w:id="${i + 1}"><w:p><w:pPr><w:pStyle w:val="FootnoteText"/></w:pPr><w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r><w:r><w:t xml:space="preserve"> ${xml(t)}</w:t></w:r></w:p></w:footnote>`).join('\n')}
+</w:footnotes>`;
+  const settings = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:settings ${W}><w:footnotePr><w:footnote w:id="-1"/><w:footnote w:id="0"/></w:footnotePr></w:settings>`;
 
   const lvl = (ilvl, fmt, text) => `<w:lvl w:ilvl="${ilvl}"><w:start w:val="1"/><w:numFmt w:val="${fmt}"/><w:lvlText w:val="${text}"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="${720 * (ilvl + 1)}" w:hanging="360"/></w:pPr></w:lvl>`;
   const levels = (fn) => Array.from({ length: 6 }, (_, l) => fn(l)).join('');
@@ -313,20 +406,26 @@ export function toDocx(doc, style, title = 'Document') {
 ${nums.map((id) => `<w:num w:numId="${id}"><w:abstractNumId w:val="1"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="1"/></w:lvlOverride></w:num>`).join('\n')}
 </w:numbering>`;
 
+  const refs = `${hasHeader ? '<w:headerReference w:type="default" r:id="rId5"/>' : ''}${hasFooter ? '<w:footerReference w:type="default" r:id="rId3"/>' : ''}`;
   const document = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document ${W} xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${body.join('')}<w:sectPr>${s.pageNumbers ? '<w:footerReference w:type="default" r:id="rId3"/>' : ''}<w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>`;
+<w:document ${W} xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${body.join('')}<w:sectPr>${refs}<w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>`;
 
   const core = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>${xml(title)}</dc:title></cp:coreProperties>`;
 
+  const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const CT = 'application/vnd.openxmlformats-officedocument.wordprocessingml';
   return zip([
     ['[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`],
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="${CT}.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="${CT}.styles+xml"/><Override PartName="/word/numbering.xml" ContentType="${CT}.numbering+xml"/><Override PartName="/word/footer1.xml" ContentType="${CT}.footer+xml"/><Override PartName="/word/header1.xml" ContentType="${CT}.header+xml"/><Override PartName="/word/footnotes.xml" ContentType="${CT}.footnotes+xml"/><Override PartName="/word/settings.xml" ContentType="${CT}.settings+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`],
     ['_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>`],
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>`],
     ['word/_rels/document.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>`],
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/styles" Target="styles.xml"/><Relationship Id="rId2" Type="${R}/numbering" Target="numbering.xml"/><Relationship Id="rId3" Type="${R}/footer" Target="footer1.xml"/><Relationship Id="rId4" Type="${R}/footnotes" Target="footnotes.xml"/><Relationship Id="rId5" Type="${R}/header" Target="header1.xml"/><Relationship Id="rId6" Type="${R}/settings" Target="settings.xml"/></Relationships>`],
     ['word/footer1.xml', footer],
+    ['word/header1.xml', header],
+    ['word/footnotes.xml', footnotes],
+    ['word/settings.xml', settings],
     ['word/document.xml', document],
     ['word/styles.xml', styles],
     ['word/numbering.xml', numbering],

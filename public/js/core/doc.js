@@ -1,10 +1,24 @@
-// The formatted document: plain text plus per-character marks and per-paragraph attributes.
-// Paragraphs are separated by "\n". Every rule here is deterministic, because replay must
-// rebuild exactly what the editor produced.
+// The formatted document: plain text plus per-character marks, per-paragraph attributes and
+// footnotes. Paragraphs are separated by "\n". Every rule here is deterministic, because replay
+// must rebuild exactly what the editor produced.
 import { canonical } from './canon.js';
 
+// A mark is a number: bits 0–6 are flags, bits 7–10 a font index, bits 11–15 a size index.
+// Index 0 means "the document's default". The font and size tables are append-only.
 export const MARKS = { b: 1, i: 2, u: 4, s: 8, sup: 16, sub: 32, hl: 64 };
 export const ALL_MARKS = 127;
+export const FONT_KEYS = ['', 'times', 'georgia', 'garamond', 'palatino', 'arial', 'calibri', 'verdana', 'courier'];
+export const SIZE_LIST = [0, 8, 9, 10, 10.5, 11, 12, 13, 14, 16, 18, 20, 24, 28, 36];
+export const FONT_SHIFT = 7;
+export const FONT_MASK = 0xf << FONT_SHIFT;
+export const SIZE_SHIFT = 11;
+export const SIZE_MASK = 0x1f << SIZE_SHIFT;
+export const fontOf = (m) => (m & FONT_MASK) >> FONT_SHIFT;
+export const sizeOf = (m) => (m & SIZE_MASK) >> SIZE_SHIFT;
+
+// A footnote is this character in the text; its note text is kept in `notes`, in anchor order.
+export const FOOTNOTE = '￼';
+
 export const STYLES = { p: 'Normal', title: 'Title', h1: 'Heading 1', h2: 'Heading 2', h3: 'Heading 3', quote: 'Quote', bib: 'Works Cited' };
 export const ALIGNS = { l: 'Left', c: 'Center', r: 'Right', j: 'Justify' };
 export const LISTS = { '': 'None', ul: 'Bulleted', ol: 'Numbered' };
@@ -12,7 +26,10 @@ export const MAX_INDENT = 5;
 export const DEFAULT_PARA = Object.freeze({ s: 'p', al: 'l', li: '', in: 0 });
 export const HEADING_STYLES = new Set(['title', 'h1', 'h2', 'h3']);
 
-export const isFormatEvent = (e) => e.k === 'fmt' || e.k === 'para';
+// Events that change the essay without being text events.
+export const isFormatEvent = (e) => e.k === 'fmt' || e.k === 'para' || e.k === 'note';
+
+const validMark = (m) => Number.isInteger(m) && m >= 0 && m <= 0xffff && fontOf(m) < FONT_KEYS.length && sizeOf(m) < SIZE_LIST.length;
 
 export function runsOf(marks, from = 0, to = marks.length) {
   const out = [];
@@ -27,7 +44,7 @@ export function runsOf(marks, from = 0, to = marks.length) {
 export function expandRuns(runs) {
   const out = [];
   for (const [n, m] of runs) {
-    if (!Number.isInteger(n) || n < 0 || !Number.isInteger(m) || m < 0 || m > ALL_MARKS) throw new Error('bad formatting runs');
+    if (!Number.isInteger(n) || n < 0 || !validMark(m)) throw new Error('bad formatting runs');
     for (let k = 0; k < n; k++) out.push(m);
   }
   return out;
@@ -64,23 +81,33 @@ export function countNl(s) {
   return c;
 }
 
+export function countNotes(s, from = 0, to = s.length) {
+  let c = 0;
+  for (let j = s.indexOf(FOOTNOTE, from); j !== -1 && j < to; j = s.indexOf(FOOTNOTE, j + 1)) c++;
+  return c;
+}
+
 export class DocModel {
-  constructor(text = '', marks = null, paras = null) {
+  constructor(text = '', marks = null, paras = null, notes = null) {
     this.text = text;
     this.marks = marks || new Array(text.length).fill(0);
     this.paras = paras || Array.from({ length: countNl(text) + 1 }, () => ({ ...DEFAULT_PARA }));
+    this.notes = notes || new Array(countNotes(text)).fill('');
   }
 
   static fromFormat(text, format) {
     const marks = format && format.marks ? expandRuns(format.marks) : null;
     const paras = format && format.paras ? format.paras.map(normPara) : null;
-    const d = new DocModel(text, marks, paras);
-    if (d.marks.length !== text.length || d.paras.length !== countNl(text) + 1) throw new Error('formatting does not fit the text');
+    const notes = format && format.notes ? format.notes.map(String) : null;
+    const d = new DocModel(text, marks, paras, notes);
+    if (d.marks.length !== text.length || d.paras.length !== countNl(text) + 1 || d.notes.length !== countNotes(text)) {
+      throw new Error('formatting does not fit the text');
+    }
     return d;
   }
 
   clone() {
-    return new DocModel(this.text, this.marks.slice(), this.paras.map((p) => ({ ...p })));
+    return new DocModel(this.text, this.marks.slice(), this.paras.map((p) => ({ ...p })), this.notes.slice());
   }
 
   paraIndexAt(p) {
@@ -104,6 +131,7 @@ export class DocModel {
   apply(e) {
     if (e.k === 'fmt') return this.applyFmt(e);
     if (e.k === 'para') return this.applyPara(e);
+    if (e.k === 'note') return this.applyNote(e);
     return this.applyText(e.p, e.n || 0, e.x || '', e.mr || e.m || 0);
   }
 
@@ -111,9 +139,17 @@ export class DocModel {
     const t = this.text;
     if (!Number.isInteger(p) || !Number.isInteger(n) || p < 0 || n < 0 || p + n > t.length) throw new Error('edit outside the document');
     const added = Array.isArray(m) ? expandRuns(m) : new Array(x.length).fill(m | 0);
-    if (added.length !== x.length) throw new Error('formatting does not match inserted text');
+    if (added.length !== x.length || (!Array.isArray(m) && !validMark(m | 0))) throw new Error('formatting does not match inserted text');
     const k1 = this.paraIndexAt(p);
     const startOfPara = p === 0 || t[p - 1] === '\n';
+
+    // Footnotes follow their anchors: removed anchors take their notes with them, and inserted
+    // anchors get empty notes, at the position of the anchor in the document.
+    const notesBefore = countNotes(t, 0, p);
+    const removedNotes = n ? countNotes(t, p, p + n) : 0;
+    if (removedNotes) this.notes.splice(notesBefore, removedNotes);
+    const addedNotes = countNotes(x);
+    if (addedNotes) this.notes.splice(notesBefore, 0, ...new Array(addedNotes).fill(''));
 
     // Deleting across paragraph breaks merges paragraphs. The first one keeps its attributes,
     // unless the deletion starts at its very beginning (it disappeared entirely).
@@ -138,7 +174,7 @@ export class DocModel {
     this.marks.splice(p, n, ...added);
   }
 
-  // { p, n, set, clr } toggles marks over a range; { p, mr } sets them exactly.
+  // { p, n, set, clr, font?, size? } changes marks over a range; { p, mr } sets them exactly.
   applyFmt(e) {
     const p = e.p;
     if (e.mr) {
@@ -150,8 +186,17 @@ export class DocModel {
     const n = e.n || 0;
     const set = e.set || 0;
     const clr = e.clr || 0;
+    const font = e.font;
+    const size = e.size;
     if (!Number.isInteger(p) || p < 0 || p + n > this.text.length || set > ALL_MARKS || clr > ALL_MARKS) throw new Error('formatting outside the document');
-    for (let i = p; i < p + n; i++) this.marks[i] = (this.marks[i] | set) & ~clr;
+    if (font != null && !(Number.isInteger(font) && font >= 0 && font < FONT_KEYS.length)) throw new Error('unknown font');
+    if (size != null && !(Number.isInteger(size) && size >= 0 && size < SIZE_LIST.length)) throw new Error('unknown size');
+    for (let i = p; i < p + n; i++) {
+      let m = (this.marks[i] | set) & ~clr;
+      if (font != null) m = (m & ~FONT_MASK) | (font << FONT_SHIFT);
+      if (size != null) m = (m & ~SIZE_MASK) | (size << SIZE_SHIFT);
+      this.marks[i] = m;
+    }
   }
 
   // { a, b, set } changes some attributes of paragraphs a..a+b-1; { a, pa } sets them exactly.
@@ -169,12 +214,28 @@ export class DocModel {
     for (let k = a; k < a + b; k++) this.paras[k] = normPara({ ...this.paras[k], ...e.set });
   }
 
-  hasFormat() {
-    return this.marks.some(Boolean) || this.paras.some((p) => !samePara(p, DEFAULT_PARA));
+  // { i, p, n, x } edits the text of footnote i like a text event.
+  applyNote(e) {
+    const i = e.i;
+    if (!Number.isInteger(i) || i < 0 || i >= this.notes.length) throw new Error('footnote does not exist');
+    const t = this.notes[i];
+    const n = e.n || 0;
+    if (!Number.isInteger(e.p) || e.p < 0 || e.p + n > t.length) throw new Error('edit outside the footnote');
+    const x = String(e.x || '');
+    if (x.includes(FOOTNOTE) || x.includes('\n')) throw new Error('footnotes are a single line of text');
+    this.notes[i] = t.slice(0, e.p) + x + t.slice(e.p + n);
   }
 
+  hasFormat() {
+    return this.marks.some(Boolean) || this.paras.some((p) => !samePara(p, DEFAULT_PARA)) || this.notes.length > 0;
+  }
+
+  // `notes` is only present when there are footnotes, so documents without them hash as before.
   format() {
-    return this.hasFormat() ? { marks: runsOf(this.marks), paras: this.paras.map((p) => ({ ...p })) } : null;
+    if (!this.hasFormat()) return null;
+    const f = { marks: runsOf(this.marks), paras: this.paras.map((p) => ({ ...p })) };
+    if (this.notes.length) f.notes = this.notes.slice();
+    return f;
   }
 
   // What checkpoints hash. Unformatted documents hash their text alone.
@@ -211,5 +272,9 @@ export function diffEvents(doc, target, it, diffOp) {
   while (a <= b && samePara(after.paras[a], target.paras[a])) a++;
   while (b >= a && samePara(after.paras[b], target.paras[b])) b--;
   if (a <= b) out.push({ k: 'para', a, pa: target.paras.slice(a, b + 1).map((p) => ({ ...p })), it });
+  after.notes.forEach((note, i) => {
+    const d = diffOp(note, target.notes[i]);
+    if (d) out.push({ k: 'note', i, p: d.p, n: d.n || undefined, x: d.x || undefined, it });
+  });
   return out;
 }

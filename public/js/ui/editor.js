@@ -2,7 +2,10 @@
 // Every change goes through rec.record() as an event and the page is re-rendered from the model,
 // so what the replay rebuilds is exactly what the student saw.
 import { diffOp } from '../core/format.js';
-import { MARKS, ALL_MARKS, MAX_INDENT, runsOf, marksField, diffEvents, samePara } from '../core/doc.js';
+import {
+  MARKS, ALL_MARKS, MAX_INDENT, runsOf, marksField, diffEvents, samePara, FOOTNOTE, countNotes, fontOf, sizeOf,
+  FONT_MASK, SIZE_MASK, FONT_SHIFT, SIZE_SHIFT,
+} from '../core/doc.js';
 import { paragraphParts, toClipboardHtml, toPlainText } from '../core/export.js';
 
 const MOVE_CHARS = 40;
@@ -175,18 +178,38 @@ export class Editor {
     return 0;
   }
 
+  // Flags common to the whole selection (or at the caret).
   activeMarks() {
     const { start, end } = this.sel;
-    if (start === end) return this.caretMarks(start);
+    if (start === end) return this.caretMarks(start) & ALL_MARKS;
     let all = ALL_MARKS;
     const t = this.doc.text;
     let any = false;
     for (let i = start; i < end; i++) {
-      if (t[i] === '\n') continue;
+      if (t[i] === '\n' || t[i] === FOOTNOTE) continue;
       all &= this.doc.marks[i];
       any = true;
     }
     return any ? all : 0;
+  }
+
+  // Font and size indexes shared by the whole selection; -1 when it's mixed.
+  activeFontSize() {
+    const { start, end } = this.sel;
+    if (start === end) {
+      const m = this.caretMarks(start);
+      return { font: fontOf(m), size: sizeOf(m) };
+    }
+    let font = null;
+    let size = null;
+    const t = this.doc.text;
+    for (let i = start; i < end; i++) {
+      if (t[i] === '\n' || t[i] === FOOTNOTE) continue;
+      const m = this.doc.marks[i];
+      font = font === null || font === fontOf(m) ? fontOf(m) : -1;
+      size = size === null || size === sizeOf(m) ? sizeOf(m) : -1;
+    }
+    return { font: font ?? 0, size: size ?? 0 };
   }
 
   paraRange() {
@@ -198,6 +221,7 @@ export class Editor {
     const [a] = this.paraRange();
     return {
       marks: this.activeMarks(),
+      ...this.activeFontSize(),
       para: this.doc.paras[a],
       canUndo: this.undoStack.length > 0,
       canRedo: this.redoStack.length > 0,
@@ -386,8 +410,39 @@ export class Editor {
       return;
     }
     this.begin('format');
-    this.emit({ k: 'fmt', p: start, n: end - start, clr: ALL_MARKS, it: 'formatRemove' });
+    this.emit({ k: 'fmt', p: start, n: end - start, clr: ALL_MARKS, font: 0, size: 0, it: 'formatRemove' });
     this.after(end, { select: [start, end] });
+  }
+
+  // Font or size for the selection; with no selection, for what's typed next (as in Word).
+  // index 0 means "follow the document".
+  setFontSize(which, index) {
+    if (!this.active()) return;
+    const { start, end } = this.getSel();
+    if (start === end) {
+      const m = this.caretMarks(start);
+      this.pendingMarks = which === 'font'
+        ? (m & ~FONT_MASK) | (index << FONT_SHIFT)
+        : (m & ~SIZE_MASK) | (index << SIZE_SHIFT);
+      this.pendingAt = start;
+      this.notifySel();
+      return;
+    }
+    this.begin('format');
+    this.emit({ k: 'fmt', p: start, n: end - start, [which]: index, it: which === 'font' ? 'formatFontName' : 'formatFontSize' });
+    this.after(end, { select: [start, end] });
+  }
+
+  // Inserts a footnote anchor after the selection and returns the new note's index.
+  insertFootnote() {
+    if (!this.active()) return -1;
+    const { end } = this.getSel();
+    const index = countNotes(this.doc.text, 0, end);
+    const m = this.caretMarks(end) & ~(MARKS.sup | MARKS.sub);
+    this.replace(end, end, FOOTNOTE, 'insertFootnote', { group: 'edit', marks: m });
+    this.announce(`Footnote ${index + 1} added`);
+    if (this.o.onFootnote) this.o.onFootnote(index);
+    return index;
   }
 
   setParas(a, b, set, it) {
@@ -499,10 +554,18 @@ export class Editor {
     const { start, end } = this.getSel();
     if (start === end) return false;
     const d = this.doc;
-    const text = d.text.slice(start, end);
+    // Footnote anchors aren't copied (their notes stay with the original).
+    let text = '';
+    const marks = [];
+    for (let i = start; i < end; i++) {
+      if (d.text[i] === FOOTNOTE) continue;
+      text += d.text[i];
+      marks.push(d.marks[i]);
+    }
+    if (!text) return false;
     e.clipboardData.setData('text/plain', text);
     e.clipboardData.setData('text/html', toClipboardHtml(d, start, end));
-    this.o.clips.set(text, { pane: 'main', runs: runsOf(d.marks, start, end) });
+    this.o.clips.set(text, { pane: 'main', runs: runsOf(marks) });
     if (this.o.clips.size > 50) this.o.clips.delete(this.o.clips.keys().next().value);
     return true;
   }
@@ -756,6 +819,7 @@ export class Editor {
     }
     if (mod && !e.altKey && e.key === 'Enter') return run(() => this.pageBreak());
     if (mod && e.altKey) {
+      if (k === 'f') return run(() => this.insertFootnote());
       if (k === '1') return run(() => this.setParaAttr({ s: 'h1' }, 'formatStyle'));
       if (k === '2') return run(() => this.setParaAttr({ s: 'h2' }, 'formatStyle'));
       if (k === '3') return run(() => this.setParaAttr({ s: 'h3' }, 'formatStyle'));

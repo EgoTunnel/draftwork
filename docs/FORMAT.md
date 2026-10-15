@@ -34,7 +34,7 @@ A gzip-compressed UTF-8 JSON object (an uncompressed JSON file is also accepted 
 | `process_notes` | no | student's notes about how they worked |
 | `dictation_mode` | no | boolean |
 | `attachments` | no | `[{ filename, sha256, added }]`: outline files, never their content |
-| `doc_style` | no | display settings: `font`, `size` (pt), `line`, `after`, `firstLine`, `pageNumbers` |
+| `doc_style` | no | display settings: `font`, `size` (pt), `line`, `after`, `firstLine`, `pageNumbers`, `headerText`, `pageNum` (`footer`, `header` or `none`) |
 | `consent` | no | `{ at, notice }`: when the student accepted the recording notice |
 | `flag_notes` | no | `{ flagId: text }`: the student's responses to flags |
 | `ai_use` | no | `{ used, detail }`: the student's AI-use disclosure |
@@ -70,13 +70,24 @@ Unhashed fields are the student's own statements and settings; they may change a
 - `m`: one mark mask for all the inserted text.
 - `mr`: run-length masks, `[[count, mask], ...]`.
 
-Mark bits: bold 1, italic 2, underline 4, strikethrough 8, superscript 16, subscript 32, highlight 64.
+A mark is an integer from 0 to 65535:
+- **Bits 0–6 are flags:** bold 1, italic 2, underline 4, strikethrough 8, superscript 16, subscript 32, highlight 64.
+- **Bits 7–10 are a font index** into `["", times, georgia, garamond, palatino, arial, calibri, verdana, courier]`.
+- **Bits 11–15 are a size index** into `[0, 8, 9, 10, 10.5, 11, 12, 13, 14, 16, 18, 20, 24, 28, 36]` (points).
+
+Index 0 means "the document's default". Both tables are append-only.
+
+**Footnotes.** A footnote is the character U+FFFC in the text, and the notes are kept in anchor order:
+- **Inserting** an anchor (through any text event) adds an empty note at that position.
+- **Deleting** an anchor removes its note.
+- **Note text** is edited with `note` events and is a single line.
 
 **Formatting events**
 
 | Kind | Fields | Meaning |
 |---|---|---|
-| `fmt` | `{ p, n, set, clr }` | marks of characters `[p, p+n)` become `(m \| set) & ~clr` |
+| `fmt` | `{ p, n, set, clr, font?, size? }` | flags of characters `[p, p+n)` become `(m \| set) & ~clr`; `font` and `size` (indexes) replace those fields when present |
+| `note` | `{ i, p, n, x }` | edits the text of footnote `i` like a text event |
 | `fmt` | `{ p, mr }` | marks set exactly from runs |
 | `para` | `{ a, b, set }` | paragraphs `a … a+b-1` get the attributes in `set` |
 | `para` | `{ a, pa }` | paragraphs from `a` set exactly |
@@ -122,7 +133,7 @@ Text events change paragraph attributes deterministically, as implemented in `Do
 ```
 
 - **`events_hash`:** `SHA-256(join("\n", canonical(event) for each event in range))`.
-- **`doc_hash`:** SHA-256 of the document after `range[1]`. It is the text alone when the document has no formatting. Once it has any, it is `text + "\u0000" + canonical({ marks: runs, paras })`, where `marks` are run-length masks over the whole text and `paras` is the attribute list.
+- **`doc_hash`:** SHA-256 of the document after `range[1]`. It is the text alone when the document has no formatting. Once it has any, it is `text + "\u0000" + canonical({ marks: runs, paras, notes? })`, where `marks` are run-length masks over the whole text, `paras` is the attribute list, and `notes` is present only when there are footnotes.
 - **`prev`:** for the first checkpoint, `SHA-256(canonical({ config_hash, student_label, created }))`. After that, the previous checkpoint's hash.
 - **Checkpoint hash:** `SHA-256(canonical({ c, range, events_hash, doc_hash, prev }))`.
 - **`tsa`:** an RFC 3161 TimeStampToken (CMS ContentInfo, base64 DER) over the checkpoint hash, with a SHA-256 message imprint.
@@ -133,7 +144,7 @@ Checkpoints must cover every event, contiguously from 0.
 
 - **`text`:** the essay text.
 - **`hash`:** `SHA-256(text)`.
-- **`format`:** `{ marks, paras }`, only present when the document has formatting.
+- **`format`:** `{ marks, paras, notes? }`, only present when the document has formatting or footnotes.
 
 Replaying all events from an empty document must reproduce `text`, and `format` when present, exactly.
 

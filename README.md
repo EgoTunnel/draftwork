@@ -36,6 +36,7 @@ No dependencies; Node 20+.
 - **Word-style editor:**
   - menus (File, Edit, View, Insert, Format, Tools);
   - paragraph styles, including Works Cited with a hanging indent;
+  - footnotes, fonts and sizes for selected text, and a header with page numbers;
   - bold, italic, underline, strikethrough, superscript/subscript and highlight;
   - lists, alignment, page breaks and page numbers;
   - document font, size and spacing;

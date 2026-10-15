@@ -1,8 +1,8 @@
 import { $, $$, h, toast, download, LOGO } from './ui/dom.js';
 import { sha256Hex, hex, sha256Bytes, fingerprintCode } from './core/canon.js';
 import { decodeConfig, configHash, diffOp, parseFile, serializeFile, fileName, countWords } from './core/format.js';
-import { MARKS, STYLES, HEADING_STYLES } from './core/doc.js';
-import { FONTS, SIZES, LINE_SPACINGS, docStyle, docStyleCss } from './core/export.js';
+import { MARKS, STYLES, HEADING_STYLES, FONT_KEYS, SIZE_LIST } from './core/doc.js';
+import { FONTS, SIZES, LINE_SPACINGS, docStyle, docStyleCss, headerLine, pageNumMode } from './core/export.js';
 import { Recorder } from './core/recorder.js';
 import { isTestAssignment } from './core/demo.js';
 import { requestStamp, relayInfo } from './core/tsa.js';
@@ -308,6 +308,14 @@ function startWriting() {
         : 'Pasting from other sources is off for this assignment. You can paste quotes into the Sources panel.', 5000),
       onUntrusted: () => toast('A browser extension or script tried to change your text. The change was undone.', 6000),
       onExternalPaste: (e) => askCitation(e),
+      onFootnote: (i) => {
+        renderNotes();
+        const ta = $$('#notes-list textarea')[i];
+        if (ta) {
+          ta.focus();
+          ta.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+      },
       onAnnounce: (msg) => {
         const live = $('#sr-status');
         live.textContent = '';
@@ -336,7 +344,132 @@ function startWriting() {
 
 function applyDocStyle() {
   sheet.setAttribute('style', docStyleCss(rec.header.doc_style) + `;zoom:${prefs.zoom / 100}`);
+  const line = headerLine(rec.header.doc_style, 1);
+  $('#sheet-header').textContent = line;
+  $('#sheet-header').classList.toggle('hidden', !line);
 }
+
+// ---------- footnotes ----------
+
+const noteBefore = new WeakMap(); // textarea -> time of its last trusted beforeinput
+let noteComposing = false;
+
+function renderNotes() {
+  if (!rec) return;
+  const notes = rec.doc.notes;
+  const list = $('#notes-list');
+  $('#notes-area').classList.toggle('hidden', !notes.length);
+  const tas = [...list.querySelectorAll('textarea')];
+  if (tas.length !== notes.length) {
+    list.innerHTML = '';
+    notes.forEach((text, i) => {
+      const ta = h('textarea', { rows: 1, class: 'note-input', 'aria-label': `Footnote ${i + 1}`, placeholder: 'Footnote text', spellcheck: String(ed.spellcheck) });
+      ta.value = text;
+      wireNote(ta, i);
+      list.append(h('li', null, ta));
+    });
+  } else {
+    notes.forEach((text, i) => {
+      if (tas[i].value !== text && document.activeElement !== tas[i]) tas[i].value = text;
+    });
+  }
+  for (const ta of list.querySelectorAll('textarea')) autoGrow(ta);
+}
+
+function autoGrow(ta) {
+  ta.style.height = 'auto';
+  ta.style.height = `${ta.scrollHeight}px`;
+}
+
+function wireNote(ta, i) {
+  ta.addEventListener('beforeinput', (e) => {
+    if (!rec || !rec.inSession) return e.preventDefault();
+    if (!e.isTrusted) {
+      e.preventDefault();
+      rec.record({ k: 'untrusted', it: e.inputType, len: (e.data || '').length });
+      return;
+    }
+    if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') return e.preventDefault();
+    noteBefore.set(ta, Date.now());
+  });
+  ta.addEventListener('compositionstart', () => {
+    noteComposing = true;
+  });
+  ta.addEventListener('compositionend', () => {
+    noteComposing = false;
+    commitNote(ta, i, 'insertCompositionText');
+  });
+  ta.addEventListener('input', (e) => {
+    if (!rec || !rec.inSession || noteComposing || e.isComposing) return;
+    // Changes not announced by a trusted beforeinput come from scripts: undo them.
+    if (!e.isTrusted || Date.now() - (noteBefore.get(ta) || 0) > 1000) return revertNote(ta, i, e.inputType);
+    commitNote(ta, i, e.inputType);
+  });
+  ta.addEventListener('paste', (e) => {
+    if (!rec || !rec.inSession || !e.isTrusted) return e.preventDefault();
+    const t = (e.clipboardData.getData('text/plain') || '').replace(/\r\n?/g, '\n');
+    if (clips.has(t) || config.policy.paste === 'allow') {
+      ta.dataset.pasted = clips.has(t) ? 'internal' : 'external';
+      return;
+    }
+    e.preventDefault();
+    rec.record({ k: 'paste_blocked', len: t.length, it: 'insertFromPaste' });
+    toast('Pasting from other sources is off for this assignment.');
+  });
+  ta.addEventListener('drop', (e) => e.preventDefault());
+}
+
+function commitNote(ta, i, it) {
+  // Footnotes are one line of text.
+  if (/[\n￼]/.test(ta.value)) ta.value = ta.value.replace(/\n/g, ' ').replace(/￼/g, '');
+  const op = diffOp(rec.doc.notes[i], ta.value);
+  autoGrow(ta);
+  if (!op) return;
+  const e = rec.record({ k: 'note', i, p: op.p, n: op.n || undefined, x: op.x || undefined, it });
+  if (ta.dataset.pasted === 'external' && op.x) askCitation({ ...e, x: op.x });
+  delete ta.dataset.pasted;
+}
+
+function revertNote(ta, i, it) {
+  const len = Math.abs(ta.value.length - rec.doc.notes[i].length);
+  ta.value = rec.doc.notes[i];
+  rec.record({ k: 'untrusted', it: `unannounced-${it || 'note'}`, len });
+  toast('A browser extension or script tried to change your text. The change was undone.', 6000);
+}
+
+// ---------- default font, header and page numbers ----------
+
+function openDocFont() {
+  const ds = docStyle(rec.header.doc_style);
+  const f = $('#docfont-font');
+  const s = $('#docfont-size');
+  if (!f.options.length) {
+    for (const [k, v] of Object.entries(FONTS)) f.append(h('option', { value: k }, v.label));
+    for (const v of SIZES) s.append(h('option', { value: v }, String(v)));
+  }
+  f.value = ds.font;
+  s.value = String(ds.size);
+  $('#docfont-dlg').showModal();
+}
+$('#docfont-dlg').addEventListener('close', () => {
+  if ($('#docfont-dlg').returnValue === 'ok') setDocStyle({ font: $('#docfont-font').value, size: Number($('#docfont-size').value) });
+  if (editor && rec.inSession) editor.focus();
+});
+
+function openHeader() {
+  const ds = docStyle(rec.header.doc_style);
+  $('#header-text').value = ds.headerText || '';
+  const mode = pageNumMode(ds);
+  for (const r of $$('input[name="pagenum"]')) r.checked = r.value === mode;
+  $('#header-dlg').showModal();
+}
+$('#header-dlg').addEventListener('close', () => {
+  if ($('#header-dlg').returnValue === 'ok') {
+    const mode = ($$('input[name="pagenum"]').find((r) => r.checked) || {}).value || 'footer';
+    setDocStyle({ headerText: $('#header-text').value.trim().slice(0, 80), pageNum: mode, pageNumbers: mode !== 'none' });
+  }
+  if (editor && rec.inSession) editor.focus();
+});
 
 function setDocStyle(patch) {
   rec.header.doc_style = { ...docStyle(rec.header.doc_style), ...patch };
@@ -366,6 +499,7 @@ function applyPrefs() {
 
 let navTimer = null;
 function onDocChange() {
+  renderNotes();
   updateWords();
   pagesLater();
   clearTimeout(navTimer);
@@ -411,8 +545,10 @@ function buildToolbar() {
     tb('redo', 'redo', 'Redo (Ctrl+Y)', () => editor.redo()),
     sep(),
     tbSelect('style', 'Paragraph style', Object.entries(STYLES), (s) => editor.setParaAttr({ s }, 'formatStyle'), '8.5em'),
-    tbSelect('font', 'Font (whole document)', Object.entries(FONTS).map(([k, f]) => [k, f.label]), (font) => setDocStyle({ font }), '11.5em'),
-    tbSelect('size', 'Font size in points (whole document)', SIZES.map((v) => [v, String(v)]), (size) => setDocStyle({ size: Number(size) }), '4.2em'),
+    tbSelect('font', 'Font of the selected text (the default is under Format → Default font)', Object.entries(FONTS).map(([k, f]) => [k, f.label]),
+      (key) => editor.setFontSize('font', key === docStyle(rec.header.doc_style).font ? 0 : FONT_KEYS.indexOf(key)), '11.5em'),
+    tbSelect('size', 'Font size of the selected text, in points', SIZES.map((v) => [v, String(v)]),
+      (size) => editor.setFontSize('size', Number(size) === docStyle(rec.header.doc_style).size ? 0 : SIZE_LIST.indexOf(Number(size))), '4.2em'),
     sep(),
     tb('b', 'bold', 'Bold (Ctrl+B)', mark(MARKS.b)),
     tb('i', 'italic', 'Italic (Ctrl+I)', mark(MARKS.i)),
@@ -478,8 +614,9 @@ function updateToolbar(state = editor && editor.state()) {
   tbButtons.redo.disabled = !state.canRedo;
   tbButtons.style.value = state.para.s;
   const ds = docStyle(rec.header.doc_style);
-  tbButtons.font.value = ds.font;
-  tbButtons.size.value = String(ds.size);
+  // Show the selection's own font/size, the document default where it has none, blank when mixed.
+  tbButtons.font.value = state.font === -1 ? '' : (FONT_KEYS[state.font] || ds.font);
+  tbButtons.size.value = state.size === -1 ? '' : String(SIZE_LIST[state.size] || ds.size);
   tbButtons.line.value = String(ds.line);
   updateWords();
 }
@@ -545,6 +682,7 @@ function buildMenus() {
     {
       label: 'Insert',
       items: () => [
+        { label: 'Footnote', shortcut: 'Ctrl+Alt+F', action: cmd(() => editor.insertFootnote()), tip: 'Add a numbered note after the cursor; type its text in Footnotes below the essay' },
         { label: 'Page break', shortcut: 'Ctrl+Enter', action: cmd(() => editor.pageBreak()), tip: 'Start the next part on a new page' },
         { label: 'Special character…', action: openSymbols },
         '-',
@@ -583,7 +721,8 @@ function buildMenus() {
         { label: 'Page break before', checked: () => !!para().pb, action: cmd(() => editor.setParaAttr({ pb: !para().pb }, 'formatPageBreak')), tip: 'Start this paragraph on a new page' },
         '-',
         { header: 'Whole document' },
-        { label: 'Page numbers', checked: () => docStyle(rec.header.doc_style).pageNumbers, action: () => setDocStyle({ pageNumbers: !docStyle(rec.header.doc_style).pageNumbers }), tip: 'Number the pages when printing or downloading for Word' },
+        { label: 'Default font…', action: openDocFont, tip: 'The font and size for all text without its own' },
+        { label: 'Header and page numbers…', action: openHeader, tip: 'Header text (e.g. your last name) and where page numbers go' },
         { label: 'Space after paragraphs', checked: () => docStyle(rec.header.doc_style).after, action: () => setDocStyle({ after: !docStyle(rec.header.doc_style).after }) },
         { label: 'Indent first lines', checked: () => docStyle(rec.header.doc_style).firstLine, action: () => setDocStyle({ firstLine: !docStyle(rec.header.doc_style).firstLine }) },
       ],
@@ -1027,6 +1166,11 @@ window.addEventListener('pagehide', () => {
 setInterval(() => {
   if (!rec || !rec.inSession) return;
   if (editor) editor.checkIntegrity();
+  if (!noteComposing) {
+    $$('#notes-list textarea').forEach((ta, i) => {
+      if (i < rec.doc.notes.length && ta.value !== rec.doc.notes[i]) revertNote(ta, i, 'programmatic');
+    });
+  }
   if (!srcComposing && srcEd.value !== srcLast) revertSrc();
 }, 500);
 

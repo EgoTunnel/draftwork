@@ -393,6 +393,46 @@ try {
     await p.close(cdpPort);
   });
 
+  await check('footnotes, fonts for selected text and a header', async () => {
+    const cfg = newConfig({ title: 'Footnotes', allowDemoTsa: true });
+    const cfgH = await configHash(cfg);
+    const p = await Page.open(cdpPort);
+    await p.goto(`${base}/student.html#a=${await encodeConfig(cfg)}`);
+    await p.waitFor('!document.querySelector("#new-card").classList.contains("hidden")');
+    await p.eval(`document.querySelector('#label-input').value = 'Noter'; document.querySelector('#consent-input').checked = true; document.querySelector('#start-btn').click(); true`);
+    await p.waitFor('!document.querySelector("#screen-writer").classList.contains("hidden")');
+    await p.eval('document.querySelector("#editor").focus(); true');
+    await p.type('Cities remember.');
+    // Footnote with Ctrl+Alt+F, then type its text in the footnote box that gets focus.
+    await p.key('f', { code: 'KeyF', vk: 70, mods: 2 | 1 });
+    await p.waitFor('document.activeElement && document.activeElement.classList.contains("note-input")');
+    await p.type('Mumford, p. 5.');
+    const shown = await p.eval('[document.querySelector("#editor .fn-ref").dataset.n, document.querySelector("#notes-list textarea").value]');
+    assert(shown[0] === '1' && shown[1] === 'Mumford, p. 5.', JSON.stringify(shown));
+    // Select "Cities" and make it Arial 14 from the toolbar.
+    await p.eval(`(() => { const t = document.querySelector('#editor > div').firstChild; const r = document.createRange(); r.setStart(t, 0); r.setEnd(t, 6); getSelection().removeAllRanges(); getSelection().addRange(r); document.querySelector('#editor').focus(); return true; })()`);
+    await sleep(100);
+    await p.eval(`(() => { const s = document.querySelectorAll('.tb-select')[1]; s.value = 'arial'; s.dispatchEvent(new Event('change')); const z = document.querySelectorAll('.tb-select')[2]; z.value = '14'; z.dispatchEvent(new Event('change')); return true; })()`);
+    const style = await p.eval('document.querySelector("#editor > div span[style]").getAttribute("style")');
+    assert(/Arial/.test(style) && /14pt/.test(style), style);
+    // Header with the page number after it.
+    await p.eval(`(() => { document.querySelector('#header-text').value = 'Noter'; document.querySelector('input[name=pagenum][value=header]').checked = true; const d = document.querySelector('#header-dlg'); d.showModal(); d.close('ok'); return true; })()`);
+    await sleep(200);
+    assert((await p.eval('document.querySelector("#sheet-header").textContent')) === 'Noter 1', 'header not shown');
+    await sleep(5600);
+    const ev = await p.eval(draftEvents(cfgH));
+    assert(ev.some((e) => e.k === 'note' && e.i === 0), 'footnote typing not recorded');
+    assert(ev.some((e) => e.k === 'fmt' && e.font === 5), 'font change not recorded');
+    await p.eval(`document.querySelector('#preview-btn').click(); true`);
+    await p.waitFor('document.querySelectorAll("#preview-body .checks li").length === 5', 20000);
+    const marks = await p.eval('[...document.querySelectorAll("#preview-body .checks .mark")].map((m) => m.className)');
+    assert(marks.every((m) => /pass|warn/.test(m)), `checks: ${marks.join(', ')}`);
+    await p.eval(`[...document.querySelectorAll('#preview-body .tab')].find((t) => t.textContent === 'Document').click(); true`);
+    const docView = await p.eval('[document.querySelector("#preview-body .sheet-header").textContent, document.querySelector("#preview-body .doc-notes").textContent]');
+    assert(docView[0] === 'Noter 1' && docView[1].includes('Mumford, p. 5.'), JSON.stringify(docView));
+    await p.close(cdpPort);
+  });
+
   await check('an assignment can turn spell check off', async () => {
     const strict = newConfig({ title: 'No spell check', allowDemoTsa: true, spelling: false });
     const p = await Page.open(cdpPort);

@@ -116,7 +116,12 @@
       </aside>
       <div class="desk" id="desk">
         <div class="sheet" id="sheet">
+          <div class="sheet-header hidden" id="sheet-header" data-tip="Header (Format → Header and page numbers)"></div>
           <div class="doc" id="editor" spellcheck="true" aria-label="Document"></div>
+          <section class="notes-area hidden" id="notes-area" aria-label="Footnotes">
+            <div class="notes-title">Footnotes</div>
+            <ol id="notes-list"></ol>
+          </section>
         </div>
       </div>
       <div class="findbar hidden" id="findbar" role="search">
@@ -232,6 +237,42 @@
         <button class="btn" type="button" id="receipt-copy">Copy receipt</button>
         <button class="btn primary" value="ok">Done</button>
       </div>
+    </form>
+  </dialog>
+
+  <!-- Default font -->
+  <dialog id="docfont-dlg">
+    <form method="dialog">
+      <div class="dlg-body stack">
+        <h2>Default font</h2>
+        <p class="small muted" style="margin:0">Used for all text that doesn’t have its own font or size. To change only some text, select it and use the font menus on the toolbar.</p>
+        <div class="row">
+          <div style="flex:2"><label for="docfont-font">Font</label><select id="docfont-font"></select></div>
+          <div style="flex:1"><label for="docfont-size">Size</label><select id="docfont-size"></select></div>
+        </div>
+      </div>
+      <div class="dlg-foot"><button class="btn" value="cancel">Cancel</button><button class="btn primary" value="ok" id="docfont-ok">Apply</button></div>
+    </form>
+  </dialog>
+
+  <!-- Header and page numbers -->
+  <dialog id="header-dlg">
+    <form method="dialog">
+      <div class="dlg-body stack">
+        <h2>Header and page numbers</h2>
+        <div>
+          <label for="header-text" data-tip="Shown at the top right of every page. MLA style uses your last name.">Header text <span class="hint">(optional)</span></label>
+          <input type="text" id="header-text" maxlength="80" placeholder="e.g. Smith">
+        </div>
+        <fieldset class="choice-set">
+          <legend>Page numbers</legend>
+          <label class="check"><input type="radio" name="pagenum" value="header"> <span>Top right, after the header <span class="hint">(MLA)</span></span></label>
+          <label class="check"><input type="radio" name="pagenum" value="footer"> <span>Bottom centre</span></label>
+          <label class="check"><input type="radio" name="pagenum" value="none"> <span>None</span></label>
+        </fieldset>
+        <p class="small muted" style="margin:0">Headers and page numbers appear when you print or download for Word.</p>
+      </div>
+      <div class="dlg-foot"><button class="btn" value="cancel">Cancel</button><button class="btn primary" value="ok">Apply</button></div>
     </form>
   </dialog>
 

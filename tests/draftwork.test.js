@@ -10,8 +10,8 @@ import {
   newConfig, configHash, encodeConfig, decodeConfig, diffOp, replay, serializeFile, parseFile,
 } from '../public/js/core/format.js';
 import { analyzeFile, finalize } from '../public/js/core/analysis.js';
-import { DocModel, MARKS, diffEvents } from '../public/js/core/doc.js';
-import { toDocx, zip } from '../public/js/core/export.js';
+import { DocModel, MARKS, diffEvents, FOOTNOTE, FONT_KEYS, SIZE_LIST, fontOf, sizeOf } from '../public/js/core/doc.js';
+import { toDocx, zip, toPlainText } from '../public/js/core/export.js';
 import { readZip, lmsName, namesMatch } from '../public/js/core/zipread.js';
 
 const mock = await createMockTsa();
@@ -295,7 +295,7 @@ test('.docx export is a valid zip with the expected parts', () => {
   assert.equal(view.getUint32(0, true), 0x04034b50);
   const eocd = bytes.length - 22;
   assert.equal(view.getUint32(eocd, true), 0x06054b50);
-  assert.equal(view.getUint16(eocd + 10, true), 8);
+  assert.equal(view.getUint16(eocd + 10, true), 11);
   const text = new TextDecoder().decode(bytes);
   assert.ok(text.includes(' &amp; &lt;stuff&gt;'));
   assert.ok(text.includes('<w:b/></w:rPr><w:t xml:space="preserve">Text</w:t>'));
@@ -335,6 +335,54 @@ test('page breaks and Works Cited style survive Enter and export', () => {
   assert.ok(xml.includes('PAGE'));
   d.applyPara({ a: 1, b: 1, set: { pb: false } });
   assert.equal(d.paras[1].pb, undefined, 'clearing a break leaves no trace in the format');
+});
+
+test('footnotes follow their anchors, survive undo, and export to Word', () => {
+  const d = new DocModel();
+  d.applyText(0, 0, 'First claim. Second claim.', 0);
+  d.applyText(12, 0, FOOTNOTE, 0); // after "First claim."
+  assert.deepEqual(d.notes, ['']);
+  d.applyNote({ i: 0, p: 0, x: 'Smith, p. 4.' });
+  d.applyText(d.text.length, 0, FOOTNOTE, 0);
+  d.applyNote({ i: 1, p: 0, x: 'Jones, p. 9.' });
+  assert.deepEqual(d.notes, ['Smith, p. 4.', 'Jones, p. 9.']);
+  const before = d.clone();
+  d.applyText(0, 13, '', 0); // deleting the first sentence takes its footnote with it
+  assert.deepEqual(d.notes, ['Jones, p. 9.']);
+  for (const e of diffEvents(d, before, 'historyUndo', diffOp)) d.apply(e);
+  assert.deepEqual(d.notes, ['Smith, p. 4.', 'Jones, p. 9.']);
+  assert.equal(d.text, before.text);
+  assert.deepEqual(d.format().notes, d.notes);
+  assert.throws(() => d.applyNote({ i: 5, p: 0, x: 'x' }));
+  const xml = new TextDecoder().decode(toDocx(d, { headerText: 'Smith', pageNum: 'header' }, 'T'));
+  assert.ok(xml.includes('<w:footnoteReference w:id="2"/>'));
+  assert.ok(xml.includes('Jones, p. 9.'));
+  assert.ok(xml.includes('Smith ') && xml.includes('<w:headerReference'));
+  assert.ok(!xml.includes('<w:footerReference'), 'page number is in the header, not the footer');
+  assert.ok(toPlainText(d).includes('First claim.[1]'));
+});
+
+test('font and size apply to selected text, independent of other formatting', () => {
+  const d = new DocModel();
+  d.applyText(0, 0, 'abcdef', MARKS.b);
+  d.applyFmt({ p: 1, n: 3, font: FONT_KEYS.indexOf('arial'), size: SIZE_LIST.indexOf(14) });
+  assert.equal(fontOf(d.marks[2]), FONT_KEYS.indexOf('arial'));
+  assert.equal(SIZE_LIST[sizeOf(d.marks[2])], 14);
+  assert.ok(d.marks[2] & MARKS.b, 'bold kept');
+  assert.equal(fontOf(d.marks[0]), 0);
+  d.applyFmt({ p: 1, n: 3, clr: MARKS.b });
+  assert.equal(fontOf(d.marks[2]), FONT_KEYS.indexOf('arial'), 'font kept when bold is cleared');
+  assert.throws(() => d.applyFmt({ p: 0, n: 1, font: 99 }));
+  const xml = new TextDecoder().decode(toDocx(d, {}, 'T'));
+  assert.ok(xml.includes('<w:rFonts w:ascii="Arial"') && xml.includes('<w:sz w:val="28"/>'));
+});
+
+test('documents without the new features hash exactly as before', () => {
+  const d = new DocModel();
+  d.applyText(0, 0, 'Plain\nHeading', 0);
+  d.applyPara({ a: 1, b: 1, set: { s: 'h1' } });
+  assert.deepEqual(Object.keys(d.format()), ['marks', 'paras']);
+  assert.equal(d.hashInput(), 'Plain\nHeading\u0000{"marks":[[13,0]],"paras":[{"al":"l","in":0,"li":"","s":"p"},{"al":"l","in":0,"li":"","s":"h1"}]}');
 });
 
 test('simulated class: flags land on the right writers and nowhere else', async () => {

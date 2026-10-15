@@ -162,6 +162,20 @@ try {
     for (const type of ['dragEnter', 'dragOver', 'drop']) await send('Input.dispatchDragEvent', { type, x: box[0], y: box[1], data });
     await waitFor('!document.querySelector("#cite-bar").classList.contains("hidden")');
     await shot(`student-cite${sfx}`);
+    // Footnotes, a font change on selected text, and an MLA header.
+    await evaluate(`document.querySelector('#cite-skip').click(); document.querySelector('#editor').focus(); true`);
+    await send('Input.insertText', { text: ' Mumford saw the city as memory made visible.' });
+    await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'f', code: 'KeyF', windowsVirtualKeyCode: 70, modifiers: 3 });
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'f', code: 'KeyF', windowsVirtualKeyCode: 70, modifiers: 3 });
+    await waitFor('document.activeElement && document.activeElement.classList.contains("note-input")');
+    await send('Input.insertText', { text: 'Lewis Mumford, The Culture of Cities (New York: Harcourt, 1938), 5.' });
+    await evaluate(`(() => { const ed = document.querySelector('#editor'); const t = [...ed.querySelectorAll('div')][0].firstChild; const r = document.createRange(); r.setStart(t, 4); r.setEnd(t, 11); getSelection().removeAllRanges(); getSelection().addRange(r); ed.focus(); return true; })()`);
+    await sleep(100);
+    await evaluate(`(() => { const s = document.querySelectorAll('.tb-select')[1]; s.value = 'arial'; s.dispatchEvent(new Event('change')); const z = document.querySelectorAll('.tb-select')[2]; z.value = '16'; z.dispatchEvent(new Event('change')); return true; })()`);
+    await evaluate(`(() => { document.querySelector('#header-text').value = 'Student'; document.querySelector('input[name=pagenum][value=header]').checked = true; const d = document.querySelector('#header-dlg'); d.showModal(); d.close('ok'); return true; })()`);
+    await shot(`student-footnotes${sfx}`);
+    await evaluate(`document.querySelector('#notes-area').scrollIntoView({ block: 'center' }); true`);
+    await shot(`student-footnotes-bottom${sfx}`);
   }
 } finally {
   if (ws) ws.close();

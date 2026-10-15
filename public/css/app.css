@@ -345,6 +345,23 @@ label.check[data-tip] { text-decoration: none; }
 .doc .s-h3 { font-size: 1.1em; font-weight: 700; margin: .7em 0 .25em; }
 .doc .s-quote { margin-left: .5in; margin-right: .5in; font-style: italic; }
 .doc .s-bib { padding-left: .5in; text-indent: -.5in; }
+.doc .fn-ref { font-size: 0; }
+/* The anchor's own font size is 0, so the raise is a length rather than "super". */
+.doc .fn-ref::after { content: attr(data-n); font-size: calc(var(--doc-size) * .7); vertical-align: .7em; line-height: 0; color: var(--accent); font-weight: 600; font-style: normal; padding-left: 1px; }
+.print-body .doc .fn-ref::after, .reader .doc .fn-ref::after { color: inherit; font-weight: normal; }
+.doc-notes { border-top: 1px solid var(--border); margin-top: 2em; padding-top: .6em; font-family: var(--doc-font); font-size: calc(var(--doc-size) * .85); line-height: 1.35; }
+.doc-notes ol { margin: 0; padding-left: 1.6em; }
+.notes-area { border-top: 1px solid var(--border); margin-top: 2em; padding-top: .6em; font-family: var(--doc-font); font-size: calc(var(--doc-size) * .85); }
+.notes-title { font: 600 .72rem var(--sans); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 4px; }
+.notes-area ol { margin: 0; padding-left: 1.6em; }
+.notes-area li::marker { color: var(--accent); font-weight: 600; }
+.note-input { display: block; width: 100%; border: 0; border-bottom: 1px dashed transparent; border-radius: 0; background: transparent; color: inherit; font: inherit; line-height: 1.35; padding: 2px 0; resize: none; overflow: hidden; }
+.note-input:focus { outline: none; border-bottom-color: var(--accent); }
+.sheet { position: relative; }
+.sheet-header { position: absolute; top: .5in; right: 1in; font-family: var(--doc-font); font-size: var(--doc-size); color: var(--muted); }
+.sheet.web .sheet-header { position: static; text-align: right; margin-bottom: 12px; }
+.choice-set { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; }
+.choice-set legend { font-weight: 550; font-size: .9rem; margin-bottom: 4px; padding: 0; }
 .doc .pb { border-top: 1px dashed var(--border); padding-top: 1.2em; margin-top: 1.4em; }
 .doc .pb::after { content: 'Page break'; position: absolute; top: -.75em; left: 50%; transform: translateX(-50%); font: .7rem var(--sans); color: var(--muted); background: var(--sheet); padding: 0 6px; text-indent: 0; font-style: normal; font-weight: normal; }
 .doc .para:first-child { margin-top: 0; }

@@ -2,6 +2,21 @@
 
 Draftwork follows [semantic versioning](https://semver.org/). The file format is versioned separately: **`draftwork/1` is frozen** (see [docs/FORMAT.md](docs/FORMAT.md)), and every release must keep verifying files written by earlier releases.
 
+## Unreleased
+
+### For students
+- **Footnotes:** Insert → Footnote, or Ctrl+Alt+F. They're numbered automatically, typed in a Footnotes section at the bottom of the page, and exported as real Word footnotes.
+- **Font and size for selected text** from the toolbar, as in Word. The document's default moved to Format → Default font.
+- **Header and page numbers** (Format): header text such as your last name, with page numbers top right (MLA), bottom centre, or none. Shown on the page, in print and in Word export.
+
+### For instructors
+- **Spell check option:** a new assignment setting allows or turns off the browser's spelling and grammar suggestions.
+
+### Fixes
+- The "Where's this from?" prompt shows the pasted text cleanly over two lines.
+
+The file format stays `draftwork/1`. The new fields are optional, and documents without them hash exactly as before.
+
 ## 0.9.0 — 2026-10-15 (pilot release)
 
 First public release, intended for no-stakes pilots.
