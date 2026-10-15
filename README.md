@@ -64,7 +64,7 @@ No dependencies; Node 20+.
 - **Assignments:** title, paste policy, sources panel, word limits, due date, AI disclosure, flag thresholds, timestamp services, and "test assignment" for demo timestamps.
 - **Backup & restore:** assignments and check-in notes live in the browser, so one file backs up everything and restores it on any computer. A banner warns whenever something isn't backed up, and the page asks the browser not to clear its storage automatically.
 - **Opening submissions:** single files, or the **zip your LMS produces** (Canvas, Moodle, Blackboard, Brightspace). The name the LMS gives each student is shown, with a warning when it doesn't match the file.
-- **Submission list:** filters (flagged, integrity failed, not checked in, follow-up) and check-in progress.
+- **Submission list:** colour-coded (green: no flags; amber: minor flags; red: a major flag or three or more), with filters (flagged, major flags, altered files, not checked in, follow-up) and check-in progress. The File column says only whether the file is an unaltered Draftwork record.
 - **Overview tab:** integrity checks, flags (including **shared passages** between students), the writing process, questions to ask, and a replay.
 - **Check-in notes:** record each answer and outcome, mark flags as benign or a concern, and **Print summary** to print or save a one-page record.
 - **Document tab / Read:** the submitted document as formatted, to copy, download or print.

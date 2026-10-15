@@ -8,7 +8,7 @@ import { relayInfo, BROWSER_DEMO_TSA } from './core/tsa.js';
 import { DEMO_CONFIG } from './core/demo.js';
 import { sha256Hex } from './core/canon.js';
 import { isZip, readZip, lmsName, namesMatch } from './core/zipread.js';
-import { renderReport } from './ui/report.js';
+import { renderReport, LEVELS, FILE_STATUS } from './ui/report.js';
 import { initTooltips } from './ui/tooltip.js';
 import { appearanceButton } from './ui/appearance.js';
 import { ICONS } from './ui/icons.js';
@@ -363,7 +363,8 @@ let filter = 'all';
 const FILTERS = {
   all: ['All', () => true],
   flagged: ['Flagged', (F) => F.flags.length > 0],
-  integrity: ['Integrity failed', (F) => F.integrity.some((c) => c.status === 'fail')],
+  major: ['Major flags', (F) => F.level === 'major'],
+  integrity: ['Altered files', (F) => F.integrity.some((c) => c.status === 'fail')],
   todo: ['Not checked in', (F, s) => !s.any],
   follow: ['Follow-up', (F, s) => s.follow > 0],
 };
@@ -460,9 +461,12 @@ function renderGroups() {
     const rows = shown.map(({ item, F, s }) => {
       const fails = F.integrity.filter((c) => c.status === 'fail').length;
       const warns = F.integrity.filter((c) => c.status !== 'pass' && c.status !== 'fail').length;
-      const integrityTip = F.integrity.filter((c) => c.status !== 'pass').map((c) => `${c.label}: ${c.detail}`).join('\n') || 'All integrity checks passed';
+      const fileStatus = FILE_STATUS[fails ? 'altered' : warns ? 'note' : 'intact'];
+      const notes = F.integrity.filter((c) => c.status !== 'pass').map((c) => `${c.label}: ${c.detail}`).join('\n');
+      const integrityTip = notes ? `${fileStatus.tip}\n\n${notes}` : fileStatus.tip;
       const lmsMismatch = item.lms && item.lms.name && !namesMatch(item.lms.name, F.header.student_label);
-      return h('tr', { class: 'clickable', tabindex: '0', onclick: () => openDetail(item, 'overview'), onkeydown: (e) => e.key === 'Enter' && openDetail(item, 'overview') },
+      const level = LEVELS[F.level];
+      return h('tr', { class: `clickable level-${F.level}`, tabindex: '0', onclick: () => openDetail(item, 'overview'), onkeydown: (e) => e.key === 'Enter' && openDetail(item, 'overview') },
         h('td', null, h('strong', null, F.header.student_label || '(no label)'),
           h('div', { class: `small ${lmsMismatch ? 'warn-text' : 'muted'}`, 'data-tip': lmsMismatch ? `The LMS says this was submitted by “${item.lms.name}”, which doesn’t obviously match the name in the file.` : null },
             item.lms && item.lms.name ? `${item.lms.lms}: ${item.lms.name}` : item.name)),
@@ -470,8 +474,12 @@ function renderGroups() {
         h('td', null, F.sessions.length),
         h('td', null, fmtDuration(F.raw.active)),
         h('td', null, h('span', { 'data-tip': integrityTip },
-          fails ? h('span', { class: 'pill bad' }, `${fails} failed`) : warns ? h('span', { class: 'pill warn' }, 'Passed*') : h('span', { class: 'pill ok' }, 'Passed'))),
-        h('td', null, F.flags.length ? h('div', { class: 'chips' }, [...new Map(F.flags.map((f) => [f.title, f])).values()].map((f) => h('span', { class: `pill ${f.kind === 'integrity' ? 'bad' : 'warn'}`, 'data-tip': f.reason }, f.title))) : h('span', { class: 'muted small' }, '—')),
+          fails ? h('span', { class: 'pill bad' }, fileStatus.label) : h('span', { class: 'small muted' }, fileStatus.label))),
+        h('td', null, h('div', { class: 'chips' },
+          h('span', { class: `pill level ${level.cls}`, 'data-tip': level.tip }, level.label),
+          [...new Map(F.flags.map((f) => [f.title, f])).values()].map((f) => h('span', {
+            class: `pill ${f.severity === 'major' ? 'bad' : 'warn'} soft`, 'data-tip': `${f.kind === 'integrity' ? 'Altered file' : f.severity === 'major' ? 'Major' : 'Minor'}: ${f.reason}`,
+          }, f.title)))),
         h('td', { class: 'small' }, s.total ? h('span', { class: s.follow ? 'warn-text' : s.asked ? '' : 'muted' },
           s.follow ? `Follow-up (${s.follow})` : s.asked ? `${s.asked} of ${s.total} asked` : 'Not yet') : '—'),
         h('td', { class: 'row-actions' }, h('button', {
@@ -497,8 +505,8 @@ function renderGroups() {
           h('th', null, 'Student'), h('th', null, 'Words'),
           h('th', { 'data-tip': 'Separate sittings' }, 'Sessions'),
           h('th', { 'data-tip': 'Writing time, not counting breaks over 5 minutes' }, 'Time'),
-          h('th', { 'data-tip': 'Whether the file is intact and was written in Draftwork' }, 'Integrity'),
-          h('th', { 'data-tip': 'Moments worth asking about' }, 'Flags'),
+          h('th', { 'data-tip': 'Whether the file is an unaltered record made in Draftwork. It doesn’t show who wrote the text or how; the Flags column does.' }, 'File'),
+          h('th', { 'data-tip': 'Moments worth asking about. Green: no flags. Amber: one or two minor flags. Red: a major flag, or three or more.' }, 'Flags'),
           h('th', { 'data-tip': 'Your check-in progress, from the notes you record under “Questions to ask”' }, 'Check-in'),
           h('th', null, ''))),
         h('tbody', null, rows.length ? rows : h('tr', null, h('td', { colspan: 8, class: 'muted small' }, 'No submissions match this filter.')))))));

@@ -423,10 +423,12 @@ test('simulated class: flags land on the right writers and nowhere else', async 
   for (const { file } of files) analyses.push(await analyzeFile(await parseFile(await serializeFile(file))));
   const flagsOf = {};
   const promptTitles = [];
+  const levelOf = {};
   for (const a of analyses) {
     const cohort = analyses.filter((x) => x.cfgHash === a.cfgHash);
     const F = finalize(a, { cohort });
     flagsOf[`${a.header.student_label}|${a.config.title}`] = new Set(F.flags.map((f) => f.id));
+    levelOf[`${a.header.student_label}|${a.config.title}`] = F.level;
     const main = F.prompts.filter((p) => !p.extra);
     assert.ok(main.length >= 1 && main.length <= 5, 'between one and five main questions');
     assert.ok(F.prompts.length <= 9, 'at most four more');
@@ -455,5 +457,10 @@ test('simulated class: flags land on the right writers and nowhere else', async 
   assert.ok(get('Cole Launder').has('quotes'), 'Cole Launder: quotes');
   const composed = Object.entries(flagsOf).filter(([k]) => !/Ranscriber|Typer|Offline|Pered|Ctation|Copier|Blake|Polly|Gene|Hugh|Cole/.test(k));
   for (const [k, v] of composed) assert.equal(v.size, 0, `${k} should have no flags, got ${[...v]}`);
+  // Green, amber, red.
+  const lvl = (label) => levelOf[Object.keys(levelOf).find((k) => k.startsWith(label + '|') && k.includes('Cities'))];
+  for (const [k] of composed) assert.equal(levelOf[k], 'none', k);
+  for (const n of ['Wren Offline', 'Blake Okafor', 'Sam Copier']) assert.equal(lvl(n), 'minor', n);
+  for (const n of ['T. Ranscriber', 'Otto Typer', 'Tam Pered', 'Polly Phone', 'Gene Rated', 'Hugh Maniser', 'Cole Launder']) assert.equal(lvl(n), 'major', n);
   assert.deepEqual([...get('Blake Okafor')], ['overlap']);
 });

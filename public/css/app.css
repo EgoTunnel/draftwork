@@ -418,6 +418,11 @@ th { font-size: .76rem; text-transform: uppercase; letter-spacing: .04em; color:
 #groups td:nth-child(n+2):nth-child(-n+5) { white-space: nowrap; }
 #groups td:first-child .small { word-break: break-all; }
 tr.clickable { cursor: pointer; }
+tr.level-none td:first-child { box-shadow: inset 4px 0 var(--ok); }
+tr.level-minor td:first-child { box-shadow: inset 4px 0 var(--warn); }
+tr.level-major td:first-child { box-shadow: inset 4px 0 var(--bad); }
+.pill.level { font-weight: 700; border: 1px solid currentColor; }
+.pill.soft { font-weight: 500; }
 tr.clickable:hover td { background: var(--surface-2); }
 td.row-actions { text-align: right; width: 1%; }
 .table-wrap { overflow-x: auto; }
@@ -482,7 +487,7 @@ details summary { cursor: pointer; font-weight: 550; }
 .checks .detail { grid-column: 2; font-size: .85rem; color: var(--muted); }
 
 .flag { border: 1px solid var(--border); border-left: 4px solid var(--warn); border-radius: 6px; padding: 12px 14px; background: var(--surface); }
-.flag.integrity { border-left-color: var(--bad); }
+.flag.integrity, .flag.major { border-left-color: var(--bad); }
 .flag + .flag { margin-top: 10px; }
 .flag h3 { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
 .flag .flag-detail { margin-top: 6px; font-size: .8rem; color: var(--muted); }

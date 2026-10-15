@@ -876,6 +876,9 @@ const BENIGN = {
   pastes: ['Habit: pressing Ctrl+V for their own notes or outline', 'They didn’t realise pasting was turned off and kept trying'],
 };
 
+// Patterns strong enough on their own to make a submission's level major.
+const MAJOR_FLAGS = new Set(['retype', 'transcription', 'speed']);
+
 // reason: plain description. detail: the measurements and thresholds behind it, shown smaller.
 function flag(kind, id, title, reason, moments, benign, detail) {
   return { kind, id, title, reason, detail: detail || '', moments: moments || [], benign: benign || [] };
@@ -1031,6 +1034,8 @@ export function finalize(A, { cohort = [A], priors = [] } = {}) {
         `${why}. Quoting is fine, but students can paste anything into the sources panel, so this is also a way to bring in text from elsewhere while pasting is blocked. Check that it reads as quotation.`,
         longest ? [{ i: longest.s, label: `${longLen.toLocaleString()}-character quote at ${clock(longest.s)}` }] : [], BENIGN.quotes,
         `Flagged when over ${Math.round(T.quote_share * 100)}% of the text is quoted, or one quote is over ${T.quote_chars} characters. Quoted: ${Math.round(share * 100)}%; longest quote ${longLen} characters.`));
+      // When most of the essay is quotation, it's no longer a minor matter.
+      if (share > 0.5) flags[flags.length - 1].major = true;
     }
   }
 
@@ -1079,13 +1084,18 @@ export function finalize(A, { cohort = [A], priors = [] } = {}) {
     }
   }
 
+  // Severity: integrity failures and the strongest patterns are major; the rest are minor.
+  // A submission's level is major with any major flag or three or more flags in all.
+  for (const f of flags) f.severity = f.kind === 'integrity' || MAJOR_FLAGS.has(f.id) || f.major ? 'major' : 'minor';
+  const level = !flags.length ? 'none' : flags.some((f) => f.severity === 'major') || flags.length >= 3 ? 'major' : 'minor';
+
   const prompts = buildPrompts(A, flags);
   const classStats = A.signals.map((s) => ({
     id: s.id,
     values: cohort.map((c) => c.signals.find((x) => x.id === s.id).metric).filter(Number.isFinite),
     priors: priors.map((p) => ({ title: p.config.title, value: p.signals.find((x) => x.id === s.id).metric })),
   }));
-  return { ...A, flags, prompts, classStats, classOn, cohortSize: cohort.length };
+  return { ...A, flags, level, prompts, classStats, classOn, cohortSize: cohort.length };
 }
 
 function buildPrompts(A, flags) {

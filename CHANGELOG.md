@@ -24,6 +24,8 @@ Draftwork follows [semantic versioning](https://semver.org/). The file format is
   - the most productive return session.
   Five appear as before; up to four more are under **More questions**.
 
+- **Colour-coded submissions:** green for no flags, amber for one or two minor flags, red for a major flag or three or more. Each flag is marked major or minor, and there's a new "Major flags" filter.
+- **"File" instead of "Integrity: Passed":** the list now says "Unaltered" or "Altered", and the report's "File integrity" section explains that these checks confirm only that the file is an unaltered Draftwork record, not who wrote it or how.
 - **Sample class:** four students who misuse AI in different ways (retyping a chatbot answer from a phone, typing up a chatbot draft from another window, an "AI humaniser" auto-typing tool, and laundering a chatbot essay through the sources panel), each with an AI-use disclosure to compare against the record.
 - **Class comparisons hold up when several students cheat:** "Written unusually quickly" also flags anyone under a third of the class's typical time, and "Unnaturally even typing" compares against the class median, so a few outliers don't hide each other.
 - The AI-use question asks about what the student said AI was used for (drafting, editing, ideas or feedback).

@@ -12,6 +12,23 @@ import { namesMatch } from '../core/zipread.js';
 
 export const OUTCOMES = { '': 'Not asked yet', ok: 'Explained convincingly', unclear: 'Answer unclear', follow: 'Needs follow-up' };
 export const DISPOSITIONS = { '': 'Not reviewed', benign: 'Benign after check-in', concern: 'Concern remains' };
+// A submission's overall level (from finalize), and each flag's severity.
+export const LEVELS = {
+  none: { label: 'No flags', cls: 'ok', tip: 'Nothing unusual in how this was written. Not a verdict: still skim it.' },
+  minor: { label: 'Minor flags', cls: 'warn', tip: 'One or two smaller things worth a question.' },
+  major: { label: 'Major flags', cls: 'bad', tip: 'A strong sign of copying or tampering, or several flags together. Look closely and talk with the student.' },
+};
+export const SEVERITY = {
+  major: { label: 'Major', cls: 'bad', tip: 'A strong sign on its own; worth a careful conversation' },
+  minor: { label: 'Minor', cls: 'warn', tip: 'Worth a question; often has an innocent explanation' },
+};
+// What the integrity checks mean, for labels and tooltips.
+export const FILE_STATUS = {
+  intact: { label: 'Unaltered', tip: 'This file is an unaltered record made in Draftwork. That’s all it means: it says nothing about who wrote the text or how. See Flags for that.' },
+  note: { label: 'Unaltered*', tip: 'An unaltered Draftwork record, with a note (for example demo timestamps, or an assignment not in your list). It says nothing about who wrote the text or how.' },
+  altered: { label: 'Altered', tip: 'This file was changed after it was written, or wasn’t made in Draftwork. Its record can’t be trusted.' },
+};
+
 export const AI_USE = {
   none: 'No AI tools', ideas: 'For ideas or brainstorming', feedback: 'For feedback on my writing',
   editing: 'For grammar or wording fixes', drafting: 'To draft some of the text', other: 'Other',
@@ -37,7 +54,8 @@ function printSummary(F, notes, fileInfo) {
     `${fileInfo && fileInfo.fingerprint ? ` · file ${fingerprintCode(fileInfo.fingerprint)}` : ''} · reviewed ${new Date().toLocaleDateString()}</p>`);
   if (header.process_notes) rows.push(`<p><strong>Student’s notes:</strong> ${escHtml(header.process_notes)}</p>`);
   if (header.ai_use) rows.push(`<p><strong>AI use:</strong> ${escHtml(AI_USE[header.ai_use.used] || header.ai_use.used)}${header.ai_use.detail ? ` — ${escHtml(header.ai_use.detail)}` : ''}</p>`);
-  rows.push('<h2>Integrity</h2><ul>');
+  rows.push(`<p><strong>${LEVELS[F.level].label}.</strong> ${escHtml(LEVELS[F.level].tip)}</p>`);
+  rows.push('<h2>File integrity</h2><p class="muted small">Whether the file is an unaltered Draftwork record. This doesn’t show who wrote it or how.</p><ul>');
   for (const c of F.integrity) rows.push(`<li>${{ pass: '✓', fail: '✕', warn: '!', unknown: '?' }[c.status]} ${escHtml(c.label)} — ${escHtml(c.detail)}</li>`);
   rows.push('</ul><h2>Flags</h2>');
   if (!F.flags.length) rows.push('<p>None.</p>');
@@ -46,7 +64,7 @@ function printSummary(F, notes, fileInfo) {
     for (const f of F.flags) {
       const d = n.flags[f.id];
       const resp = (header.flag_notes || {})[f.id];
-      rows.push(`<li><strong>${escHtml(f.title)}</strong>: ${escHtml(f.reason)}${d ? ` <em>[${DISPOSITIONS[d]}]</em>` : ''}${resp ? `<br>Student’s response: “${escHtml(resp)}”` : ''}</li>`);
+      rows.push(`<li><strong>${escHtml(f.title)}</strong> (${f.kind === 'integrity' ? 'altered file' : (f.severity || 'minor')}): ${escHtml(f.reason)}${d ? ` <em>[${DISPOSITIONS[d]}]</em>` : ''}${resp ? `<br>Student’s response: “${escHtml(resp)}”` : ''}</li>`);
     }
     rows.push('</ul>');
   }
@@ -208,9 +226,12 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
     tabs.append(tabBtns[k]);
   }
   tabs.append(h('span', { class: 'spacer' }),
-    h('span', { class: `pill ${failing ? 'bad' : F.integrity.some((c) => c.status !== 'pass') ? 'warn' : 'ok'}`, 'data-tip': 'Integrity checks passed' },
-      failing ? `${failing} check${failing === 1 ? '' : 's'} failed` : `${passing}/${F.integrity.length} checks`),
-    h('span', { class: `pill ${F.flags.length ? 'warn' : ''}` }, `${F.flags.length} flag${F.flags.length === 1 ? '' : 's'}`),
+    (() => {
+      const st = FILE_STATUS[failing ? 'altered' : passing < F.integrity.length ? 'note' : 'intact'];
+      return h('span', { class: `pill ${failing ? 'bad' : ''}`, 'data-tip': st.tip }, failing ? `File altered (${failing} check${failing === 1 ? '' : 's'} failed)` : `File ${st.label.toLowerCase()}`);
+    })(),
+    h('span', { class: `pill ${LEVELS[F.level].cls}`, 'data-tip': LEVELS[F.level].tip },
+      F.flags.length ? `${F.flags.length} flag${F.flags.length === 1 ? '' : 's'}${F.level === 'major' ? ', major' : ''}` : 'No flags'),
     N0 ? h('button', {
       class: 'btn small', type: 'button', 'data-tip': 'Print or save as PDF a one-page record: checks, flags with your review, questions and answers',
       onclick: () => printSummary(F, N0, fileInfo), html: `${ICONS.print}<span>Print summary</span>`,
@@ -218,7 +239,8 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
 
   // ---------- overview: integrity ----------
   const l1 = h('section', { class: 'card', id: 'layer-integrity' },
-    sectionHead('Integrity', 'Pass/fail checks that the file wasn’t altered and was written in Draftwork. A failure means the file was changed or built outside the app.'),
+    sectionHead('File integrity', 'Pass/fail checks that the file wasn’t altered and was written in Draftwork. A failure means the file was changed or built outside the app.'),
+    h('p', { class: 'small muted', style: 'margin:-4px 0 8px' }, 'These checks confirm the file is an unaltered Draftwork record. They don’t show who wrote it or how; that’s what the flags below are for.'),
     h('ul', { class: 'checks' }, F.integrity.map((c) => h('li', null,
       h('span', { class: `mark ${c.status}`, 'aria-label': STATUS_TEXT[c.status], 'data-tip': STATUS_TEXT[c.status] }, STATUS_MARK[c.status]),
       h('span', { 'data-tip': c.tip || null }, c.label),
@@ -229,8 +251,10 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
   const l2 = h('section', { class: 'card', id: 'layer-flags' },
     sectionHead('Flags', 'Unusual moments, or ones that match a known misuse pattern. Each is listed on its own with innocent explanations. A flag is a reason to ask, not a finding.'),
     F.flags.length
-      ? F.flags.map((f) => h('div', { class: `flag ${f.kind}` },
-        h('h3', null, f.title, h('span', { class: `pill ${f.kind === 'integrity' ? 'bad' : 'warn'}`, 'data-tip': f.kind === 'integrity' ? 'The file was altered or produced outside Draftwork' : 'A writing pattern worth a conversation' }, f.kind === 'integrity' ? 'Integrity' : 'Pattern')),
+      ? F.flags.map((f) => h('div', { class: `flag ${f.kind} ${f.severity || 'minor'}` },
+        h('h3', null, f.title, f.kind === 'integrity'
+          ? h('span', { class: 'pill bad', 'data-tip': 'The file was altered or produced outside Draftwork' }, 'Altered file')
+          : h('span', { class: `pill ${SEVERITY[f.severity || 'minor'].cls}`, 'data-tip': SEVERITY[f.severity || 'minor'].tip }, SEVERITY[f.severity || 'minor'].label)),
         h('div', null, f.reason),
         f.detail ? h('div', { class: 'flag-detail' }, f.detail) : null,
         f.moments.length ? h('div', { class: 'moments' }, f.moments.map((m) => moment(m.i, m.label))) : null,
