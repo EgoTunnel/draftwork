@@ -2,13 +2,25 @@
 
 Students write in a word processor that records how their work came together. Instructors replay it and ask about a few specific moments in a short conversation. Draftwork doesn't try to prove authorship; it makes faking it cost more than doing the work, and it never produces a score.
 
+### **[Try it now → egotunnel.github.io/draftwork](https://egotunnel.github.io/draftwork/)**
+
+Write as a student, or explore a sample class with copied, retyped and tampered submissions. To use it with your own students:
+
+1. Open **Review → Assignments**, create an assignment, and share its link.
+2. Students write and send you their `.draftwork` file, by LMS, email or a shared folder.
+3. Drop the files on **Review**.
+
+There are no accounts, nothing to install, and nothing to pay.
+
+**Free, private, no tracking.** Draftwork has no backend and collects nothing. Students' work stays in their browser until they send the file themselves. Only anonymous fingerprints of their progress go out, to be timestamped.
+
 ![The student's editor](docs/img/student-editor.png)
 
 ![An instructor's view of a flagged submission](docs/img/instructor-report.png)
 
 Free and open source under the [Apache 2.0 license](LICENSE). It needs no institutional backend: the work lives in a file the student uploads to the LMS they already use. Based on [the spec](./Draftwork%20—%20File%20Format%20&%20Replay%20Viewer%20Spec.md). Instructors: start with the [guide](public/guide.html); students and instructors with a problem: [help](public/help.html). The file format is documented in [docs/FORMAT.md](docs/FORMAT.md); changes are in the [changelog](CHANGELOG.md).
 
-**Try it:** run it locally (below) or build the static demo (`npm run build`) and open **Try it** on the home page: write as a student, or explore a sample class with copied, retyped and tampered submissions.
+Want your own independent copy? Fork this repository and follow [docs/DEPLOY.md](docs/DEPLOY.md). It takes about 10 minutes and is free.
 
 | | |
 |---|---|
