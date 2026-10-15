@@ -80,6 +80,8 @@ function refuse(msg) {
   el.classList.remove('hidden');
 }
 
+const spellingAllowed = () => !(config && config.policy.spelling === false);
+
 const isDesktop = () => !(matchMedia('(pointer: coarse)').matches && !matchMedia('(pointer: fine)').matches);
 
 // Draftwork's automated tests run in Chromium browsers (Chrome, Edge, Brave, Opera, Vivaldi).
@@ -120,6 +122,7 @@ async function openAssignment(code) {
       p.paste === 'block' ? 'Pasting from other sources is off' : 'Pasting from other sources is allowed'),
     p.sources_pane && h('li', { 'data-tip': 'A side panel where you can paste quotes, then copy them into your writing.' }, 'Sources panel for quotes'),
     (p.words_min || p.words_max) && h('li', null, `${p.words_min || 0}–${p.words_max || 'any'} words`),
+    p.spelling === false && h('li', { 'data-tip': 'Your instructor turned off spelling and grammar suggestions for this assignment.' }, 'Spell check is off'),
     config.due && h('li', null, `Due ${new Date(config.due).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}`),
     isTestAssignment(config)
       ? h('li', { class: 'warn-text', 'data-tip': 'Timestamps are simulated, so this file can’t prove when it was written. Fine for trying Draftwork out; real assignments use a timestamp service.' }, 'Test assignment: for trying Draftwork out')
@@ -353,7 +356,7 @@ function applyPrefs() {
   $('#sources-pane').classList.toggle('hidden', !(hasSources && prefs.sources));
   $('#writer-body').classList.toggle('with-sources', !!(hasSources && prefs.sources));
   $('#writer-body').classList.toggle('with-nav', prefs.nav);
-  ed.spellcheck = prefs.spell;
+  ed.spellcheck = spellingAllowed() && prefs.spell;
   $('#zoom').value = prefs.zoom;
   $('#zoom-label').textContent = `${prefs.zoom}%`;
   applyDocStyle();
@@ -599,7 +602,9 @@ function buildMenus() {
         { label: 'Word count…', action: openCount },
         { label: 'Special characters…', action: openSymbols },
         '-',
-        { label: 'Check spelling', checked: () => prefs.spell, action: () => setPref('spell', !prefs.spell), tip: 'Underline misspelled words (uses your browser’s spell checker)' },
+        spellingAllowed()
+          ? { label: 'Check spelling and grammar', checked: () => prefs.spell, action: () => setPref('spell', !prefs.spell), tip: 'Underline misspelled words (and, in some browsers, grammar), using your browser’s own checker' }
+          : { label: 'Spell check is off for this assignment', disabled: () => true, action: () => {} },
         { label: 'Smart quotes and dashes', checked: () => prefs.smartQuotes, action: () => setPref('smartQuotes', !prefs.smartQuotes), tip: 'Turn straight quotes into curly ones and -- into an em dash as you type' },
         { label: 'Automatic lists', checked: () => prefs.autoLists, action: () => setPref('autoLists', !prefs.autoLists), tip: 'Typing "- " or "1. " at the start of a line starts a list' },
         { label: 'Ask where pasted text is from', checked: () => prefs.citePrompt, action: () => setPref('citePrompt', !prefs.citePrompt), tip: 'After you paste from another source, a small box asks for the author, title or link' },

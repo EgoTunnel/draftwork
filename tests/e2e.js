@@ -393,6 +393,18 @@ try {
     await p.close(cdpPort);
   });
 
+  await check('an assignment can turn spell check off', async () => {
+    const strict = newConfig({ title: 'No spell check', allowDemoTsa: true, spelling: false });
+    const p = await Page.open(cdpPort);
+    await p.goto(`${base}/student.html#a=${await encodeConfig(strict)}`);
+    await p.waitFor('!document.querySelector("#new-card").classList.contains("hidden")');
+    assert(/Spell check is off/.test(await p.eval('document.querySelector("#a-policy").textContent')), 'not shown to the student');
+    await p.eval(`document.querySelector('#label-input').value = 'Speller'; document.querySelector('#consent-input').checked = true; document.querySelector('#start-btn').click(); true`);
+    await p.waitFor('!document.querySelector("#screen-writer").classList.contains("hidden")');
+    assert(!(await p.eval('document.querySelector("#editor").spellcheck')), 'spellcheck still on');
+    await p.close(cdpPort);
+  });
+
   await check('instructor: backup, wipe the browser, restore', async () => {
     const dl = await mkdtemp(join(tmpdir(), 'draftwork-dl-'));
     const p = await Page.open(cdpPort);

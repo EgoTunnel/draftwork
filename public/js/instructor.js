@@ -200,6 +200,7 @@ function renderLibrary() {
       Object.keys(c.thresholds || {}).length ? 'custom thresholds' : null,
       c.due ? `due ${new Date(c.due).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}` : null,
       c.ai_disclosure ? 'AI disclosure' : null,
+      c.policy.spelling === false ? 'spell check off' : null,
       c.allow_demo_tsa ? 'test assignment' : null,
     ].filter(Boolean).join(' · ');
     box.append(h('div', { class: 'assign-row' },
@@ -257,6 +258,7 @@ $('#new-form').addEventListener('submit', async (ev) => {
     tsaAnchors,
     due: dueVal ? new Date(dueVal).toISOString() : null,
     aiDisclosure: $('#f-ai').checked,
+    spelling: $('#f-spelling').checked,
   });
   await addToLibrary(config);
   renderLibrary();

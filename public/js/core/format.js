@@ -63,7 +63,7 @@ export const THRESHOLD_LABELS = {
 
 export function newConfig({
   title, paste = 'block', sourcesPane = true, wordsMin = null, wordsMax = null, tsaUrl = '/tsa', thresholds = {},
-  allowDemoTsa = false, tsaAnchors = [], due = null, aiDisclosure = false,
+  allowDemoTsa = false, tsaAnchors = [], due = null, aiDisclosure = false, spelling = true,
 }) {
   const config = {
     v: 1,
@@ -84,6 +84,7 @@ export function newConfig({
   if (tsaAnchors.length) config.tsa_anchors = tsaAnchors;
   if (due) config.due = due;
   if (aiDisclosure) config.ai_disclosure = true;
+  if (!spelling) config.policy.spelling = false; // the browser's built-in spelling and grammar suggestions
   return config;
 }
 
