@@ -80,6 +80,12 @@ function refuse(msg) {
 
 const isDesktop = () => !(matchMedia('(pointer: coarse)').matches && !matchMedia('(pointer: fine)').matches);
 
+// Draftwork's automated tests run in Chromium browsers (Chrome, Edge, Brave, Opera, Vivaldi).
+const isTested = () => {
+  const brands = (navigator.userAgentData && navigator.userAgentData.brands) || [];
+  return brands.some((b) => /Chromium/.test(b.brand)) || (/Chrome\//.test(navigator.userAgent) && !/Firefox\//.test(navigator.userAgent));
+};
+
 async function checkConnection() {
   const simulated = String(config.tsa_url).startsWith('demo:');
   if (!simulated && !navigator.onLine) throw new Error('This computer is offline.');
@@ -107,7 +113,7 @@ async function openAssignment(code) {
   const p = config.policy;
   const pol = $('#a-policy');
   pol.innerHTML = '';
-  pol.append(
+  pol.append(...[
     h('li', { 'data-tip': p.paste === 'block' ? 'You can still cut, copy and paste within your own document.' : 'Pasted text is labelled in the record.' },
       p.paste === 'block' ? 'Pasting from other sources is off' : 'Pasting from other sources is allowed'),
     p.sources_pane && h('li', { 'data-tip': 'A side panel where you can paste quotes, then copy them into your writing.' }, 'Sources panel for quotes'),
@@ -116,7 +122,10 @@ async function openAssignment(code) {
     isTestAssignment(config)
       ? h('li', { class: 'warn-text', 'data-tip': 'Timestamps are simulated, so this file can’t prove when it was written. Fine for trying Draftwork out; real assignments use a timestamp service.' }, 'Test assignment: for trying Draftwork out')
       : h('li', { 'data-tip': 'Your work is timestamped as you go, so you need to stay connected.' }, 'Needs an internet connection'),
-  );
+  ].filter(Boolean));
+  if (!isTested()) {
+    $('#browser-note').classList.remove('hidden');
+  }
   if (!isDesktop()) {
     refuse('Draftwork works on desktop and laptop computers.');
     return;
@@ -396,7 +405,7 @@ function buildToolbar() {
     tb('redo', 'redo', 'Redo (Ctrl+Y)', () => editor.redo()),
     sep(),
     tbSelect('style', 'Paragraph style', Object.entries(STYLES), (s) => editor.setParaAttr({ s }, 'formatStyle'), '8.5em'),
-    tbSelect('font', 'Font (whole document)', Object.entries(FONTS).map(([k, f]) => [k, f.label]), (font) => setDocStyle({ font }), '9.5em'),
+    tbSelect('font', 'Font (whole document)', Object.entries(FONTS).map(([k, f]) => [k, f.label]), (font) => setDocStyle({ font }), '11.5em'),
     tbSelect('size', 'Font size in points (whole document)', SIZES.map((v) => [v, String(v)]), (size) => setDocStyle({ size: Number(size) }), '4.2em'),
     sep(),
     tb('b', 'bold', 'Bold (Ctrl+B)', mark(MARKS.b)),

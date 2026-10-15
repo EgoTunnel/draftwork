@@ -288,6 +288,8 @@ function autotyper(sim, r, paras) {
   sim.end();
 }
 
+export { rng, essay, Sim, composer };
+
 // ---------- driver ----------
 
 export async function simulateClass({ students = 15, seed = 7 } = {}) {

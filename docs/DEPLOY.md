@@ -7,6 +7,19 @@ Draftwork has two parts:
 - **The pages** (`public/`): static files.
 - **The timestamp relay** (`/tsa`): forwards a hash to a public RFC 3161 service, because those services don't accept requests from browsers. It keeps no state and never sees student text.
 
+## Option 0: a free public demo on GitHub Pages
+
+The repository includes `.github/workflows/pages.yml`. In the repository's **Settings → Pages**, set **Source** to **GitHub Actions**. Every push to `main` then publishes the site with the sample class.
+
+- **Without a relay**, new assignments are **test assignments**: timestamps are simulated in the browser. That's right for a demo, but not for grading.
+- **To enable real assignments**, deploy the relay from Option B and set the repository variable `DRAFTWORK_RELAY_URL` (**Settings → Secrets and variables → Actions → Variables**) to its URL. The next publish uses it.
+
+To build the same site locally, run the command below. The site goes into `dist/`; add `--relay <url>` to point it at a relay.
+
+```bash
+npm run build
+```
+
 ## Option A: one container (simplest)
 
 The Docker image serves the pages and the relay together.

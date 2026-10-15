@@ -30,7 +30,9 @@ export function fmtDuration(ms) {
   const m = Math.round(s / 60);
   if (m < 90) return `${m} minute${m === 1 ? '' : 's'}`;
   const h = Math.floor(m / 60);
-  return `${h} h ${m % 60} min`;
+  if (h < 48) return `${h} h ${m % 60} min`;
+  const d = Math.round(h / 24);
+  return `${d} days`;
 }
 
 export function snippet(text, words = 8) {

@@ -234,6 +234,7 @@ label.check[data-tip] { text-decoration: none; }
 /* ---------- landing ---------- */
 .home-title { font-family: var(--serif); font-size: 2.2rem; font-weight: 600; margin: 40px 0 20px; }
 .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.choices .card + .card { margin-top: 0; }
 .choice { display: block; text-decoration: none; color: inherit; }
 .choice:hover { border-color: var(--accent); }
 .choice h2 { color: var(--accent); }
@@ -393,7 +394,9 @@ dialog::backdrop { background: rgba(0, 0, 0, .35); }
 .dropzone.over { border-color: var(--accent); background: var(--accent-soft); }
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
-th { font-size: .76rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+th { font-size: .76rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; white-space: nowrap; }
+#groups td:nth-child(n+2):nth-child(-n+5) { white-space: nowrap; }
+#groups td:first-child .small { word-break: break-all; }
 tr.clickable { cursor: pointer; }
 tr.clickable:hover td { background: var(--surface-2); }
 td.row-actions { text-align: right; width: 1%; }

@@ -206,10 +206,10 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
     h('span', { class: `pill ${failing ? 'bad' : F.integrity.some((c) => c.status !== 'pass') ? 'warn' : 'ok'}`, 'data-tip': 'Integrity checks passed' },
       failing ? `${failing} check${failing === 1 ? '' : 's'} failed` : `${passing}/${F.integrity.length} checks`),
     h('span', { class: `pill ${F.flags.length ? 'warn' : ''}` }, `${F.flags.length} flag${F.flags.length === 1 ? '' : 's'}`),
-    N0 && h('button', {
+    N0 ? h('button', {
       class: 'btn small', type: 'button', 'data-tip': 'Print or save as PDF a one-page record: checks, flags with your review, questions and answers',
       onclick: () => printSummary(F, N0, fileInfo), html: `${ICONS.print}<span>Print summary</span>`,
-    }));
+    }) : '');
 
   // ---------- overview: integrity ----------
   const l1 = h('section', { class: 'card', id: 'layer-integrity' },
@@ -389,7 +389,7 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
     meta.append(
       h('span', { 'data-tip': 'Writing time so far, not counting long breaks' }, h('strong', null, fmtClock(tl.clock[idx]))),
       h('span', null, new Date(tl.abs[idx]).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' })),
-      F.sessions.length > 1 && h('span', null, `Session ${tl.session[idx] + 1} of ${F.sessions.length}`),
+      F.sessions.length > 1 ? h('span', null, `Session ${tl.session[idx] + 1} of ${F.sessions.length}`) : '',
       h('span', null, `${countWords(st.text)} words`),
     );
     evLine.textContent = describeEvent(e);

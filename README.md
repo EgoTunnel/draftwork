@@ -1,8 +1,21 @@
 # Draftwork
 
-Records how a take-home piece of writing was produced, so an instructor can replay it and ask about it. Built from [Draftwork — File Format & Replay Viewer Spec](./Draftwork%20—%20File%20Format%20&%20Replay%20Viewer%20Spec.md).
+Students write in a word processor that records how their work came together. Instructors replay it and ask about a few specific moments in a short conversation. Draftwork doesn't try to prove authorship; it makes faking it cost more than doing the work, and it never produces a score.
 
-Two static pages and a file format, plus a tiny stateless timestamp relay. No dependencies; Node 20+.
+![The student's editor](docs/img/student-editor.png)
+
+![An instructor's view of a flagged submission](docs/img/instructor-report.png)
+
+Free and open source under the [Apache 2.0 license](LICENSE). It needs no institutional backend: the work lives in a file the student uploads to the LMS they already use. Based on [the spec](./Draftwork%20—%20File%20Format%20&%20Replay%20Viewer%20Spec.md). Instructors: start with the [guide](public/guide.html).
+
+**Try it:** run it locally (below) or build the static demo (`npm run build`) and open **Try it** on the home page: write as a student, or explore a sample class with copied, retyped and tampered submissions.
+
+| | |
+|---|---|
+| ![Questions to ask](docs/img/instructor-questions.png) | ![The writing process](docs/img/instructor-process.png) |
+| ![Submissions list](docs/img/instructor-list.png) | ![Dark theme](docs/img/student-editor-dark.png) |
+
+No dependencies; Node 20+.
 
 ## What's in it
 
@@ -63,7 +76,19 @@ To run just the server:
 npm start
 ```
 
-To deploy for a real class, see **[docs/DEPLOY.md](docs/DEPLOY.md)**. It covers a single container (`Dockerfile`), or static hosting plus the serverless relay in `deploy/relay-worker.js`.
+To deploy, see **[docs/DEPLOY.md](docs/DEPLOY.md)**. It covers three options:
+
+- **GitHub Pages** (included workflow): a free demo with no server at all.
+- **A single container** (`Dockerfile`).
+- **Static hosting plus the serverless relay** in `deploy/relay-worker.js`.
+
+To build the static site into `dist/`:
+
+```bash
+npm run build
+```
+
+Add `--relay <url>` to point real assignments at a deployed relay.
 
 To generate a demo class (composed essays, a transcriber, an autotyper, a copier, a dictation user, a stamp outage, a tampered file and an earlier assignment):
 
@@ -91,7 +116,11 @@ Live check that every approved timestamp service still answers and verifies (nee
 npm run test:live
 ```
 
-`node tools/report.js samples` prints integrity results, flags and prompts for a folder of files.
+Other tools:
+
+- `node tools/report.js samples` prints integrity results, flags and prompts for a folder of files.
+- `node tools/perf.js` times a long essay. On a 4,500-word essay with 33,000 edits: a 406 KB file, 17 ms keystroke-to-screen, and about 0.3 s to analyse.
+- `node tools/screenshots.js` regenerates the images in `docs/img`.
 
 ## Layout
 
@@ -151,6 +180,6 @@ All thresholds are starting values to calibrate in a pilot. The anonymised expor
 
 - **Footnotes and a citation generator** (APA/MLA).
 - **Per-selection fonts and sizes.**
-- **Tested browsers:** the browser tests run in Edge and Chrome; Firefox and Safari aren't covered.
+- **Tested browsers:** the browser tests run in Edge and Chrome; Firefox and Safari aren't covered. Students on other browsers see a note recommending Chrome or Edge.
 - **Real assistive technology:** OS dictation, and screen readers such as NVDA and VoiceOver, still need testing with the actual tools.
 - **The "later" list:** a timed in-class mode, other kinds of work (code, maths, lab reports), and LTI integration.
