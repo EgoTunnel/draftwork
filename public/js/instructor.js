@@ -351,10 +351,12 @@ function setNotes(key, n) {
 // "3 of 4 asked · 1 follow-up" for the table.
 function checkinStatus(item, F) {
   const n = getNotes(item.key);
-  const outcomes = F.prompts.map((p) => (n.prompts && n.prompts[p.i] && n.prompts[p.i].outcome) || '');
+  const outcomes = F.prompts.map((p) => (n.prompts && n.prompts[p.key] && n.prompts[p.key].outcome) || '');
   const asked = outcomes.filter(Boolean).length;
   const follow = outcomes.filter((o) => o === 'follow').length + Object.values(n.flags || {}).filter((d) => d === 'concern').length;
-  return { asked, total: F.prompts.length, follow, any: asked > 0 || !!n.summary };
+  // Extra questions count once asked, but don't raise the target.
+  const main = F.prompts.filter((p) => !p.extra).length;
+  return { asked, total: Math.max(main, asked), follow, any: asked > 0 || !!n.summary };
 }
 
 let filter = 'all';
@@ -469,7 +471,7 @@ function renderGroups() {
         h('td', null, fmtDuration(F.raw.active)),
         h('td', null, h('span', { 'data-tip': integrityTip },
           fails ? h('span', { class: 'pill bad' }, `${fails} failed`) : warns ? h('span', { class: 'pill warn' }, 'Passed*') : h('span', { class: 'pill ok' }, 'Passed'))),
-        h('td', null, F.flags.length ? h('div', { class: 'chips' }, [...new Set(F.flags.map((f) => f.title))].map((t) => h('span', { class: `pill ${t === 'Integrity failure' ? 'bad' : 'warn'}` }, t))) : h('span', { class: 'muted small' }, '—')),
+        h('td', null, F.flags.length ? h('div', { class: 'chips' }, [...new Map(F.flags.map((f) => [f.title, f])).values()].map((f) => h('span', { class: `pill ${f.kind === 'integrity' ? 'bad' : 'warn'}`, 'data-tip': f.reason }, f.title))) : h('span', { class: 'muted small' }, '—')),
         h('td', { class: 'small' }, s.total ? h('span', { class: s.follow ? 'warn-text' : s.asked ? '' : 'muted' },
           s.follow ? `Follow-up (${s.follow})` : s.asked ? `${s.asked} of ${s.total} asked` : 'Not yet') : '—'),
         h('td', { class: 'row-actions' }, h('button', {
@@ -544,7 +546,7 @@ function csvCell(v) {
 
 async function exportCsv(anonymous) {
   const rows = [];
-  const flagIds = ['gap', 'untrusted', 'unusual', 'retype', 'transcription', 'away', 'fast', 'rhythm', 'overlap', 'quotes'];
+  const flagIds = ['gap', 'untrusted', 'unusual', 'retype', 'transcription', 'away', 'fast', 'rhythm', 'overlap', 'quotes', 'speed', 'pastes'];
   for (const [, items] of groupsOf()) {
     for (const item of items) {
       const F = finalized(item);
@@ -566,7 +568,7 @@ async function exportCsv(anonymous) {
       for (const sg of F.signals) row[`signal_${sg.id}`] = Number.isFinite(sg.metric) ? Number(sg.metric.toFixed(4)) : '';
       row.questions_asked = s.asked;
       row.questions_total = s.total;
-      row.outcomes = F.prompts.map((p) => (n.prompts && n.prompts[p.i] && n.prompts[p.i].outcome) || '-').join(' ');
+      row.outcomes = F.prompts.map((p) => (n.prompts && n.prompts[p.key] && n.prompts[p.key].outcome) || '-').join(' ');
       if (!anonymous) row.notes = n.summary || '';
       rows.push(row);
     }

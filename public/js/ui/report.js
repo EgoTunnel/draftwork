@@ -52,7 +52,8 @@ function printSummary(F, notes, fileInfo) {
   }
   rows.push('<h2>Check-in</h2><ol>');
   for (const p of F.prompts) {
-    const a = n.prompts[p.i] || {};
+    const a = n.prompts[p.key] || {};
+    if (p.extra && !a.outcome && !a.answer) continue;
     rows.push(`<li><p>${escHtml(p.question)}</p>${a.outcome ? `<p><em>${OUTCOMES[a.outcome]}</em></p>` : ''}${a.answer ? `<p>Answer: ${escHtml(a.answer)}</p>` : ''}</li>`);
   }
   rows.push('</ol>');
@@ -229,6 +230,7 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
       ? F.flags.map((f) => h('div', { class: `flag ${f.kind}` },
         h('h3', null, f.title, h('span', { class: `pill ${f.kind === 'integrity' ? 'bad' : 'warn'}`, 'data-tip': f.kind === 'integrity' ? 'The file was altered or produced outside Draftwork' : 'A writing pattern worth a conversation' }, f.kind === 'integrity' ? 'Integrity' : 'Pattern')),
         h('div', null, f.reason),
+        f.detail ? h('div', { class: 'flag-detail' }, f.detail) : null,
         f.moments.length ? h('div', { class: 'moments' }, f.moments.map((m) => moment(m.i, m.label))) : null,
         h('details', { class: 'benign', open: true },
           h('summary', null, f.kind === 'integrity' ? 'Before concluding anything' : 'Possible innocent explanations'),
@@ -260,7 +262,7 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
   // ---------- overview: writing process ----------
   const markers = [
     ...F.flags.flatMap((f) => f.moments.map((m) => ({ i: m.i, kind: 'flag', label: `${f.title}: ${m.label}` }))),
-    ...F.prompts.map((p, k) => ({ i: p.i, kind: 'prompt', label: `Question ${k + 1}: ${p.title}` })),
+    ...F.prompts.filter((p) => !p.extra && p.i != null).map((p, k) => ({ i: p.i, kind: 'prompt', label: `Question ${k + 1}: ${p.title}` })),
   ];
   const graph = productionGraph(F, { onSeek: (i) => seek(i, false), markers });
   const statsById = Object.fromEntries((F.classStats || []).map((c) => [c.id, c]));
@@ -287,32 +289,19 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
   );
 
   // ---------- overview: questions ----------
+  const mainPrompts = F.prompts.filter((p) => !p.extra);
+  const extraPrompts = F.prompts.filter((p) => p.extra);
   const l4 = h('section', { class: 'card', id: 'layer-prompts' },
     sectionHead('Questions to ask', 'Specific moments to ask the student about in a short check-in. Flagged moments come first.',
       F.prompts.length ? h('button', {
-        class: 'btn small', type: 'button', 'data-tip': 'Copy all questions as a numbered list',
-        onclick: () => navigator.clipboard.writeText(F.prompts.map((p, k) => `${k + 1}. ${p.question}`).join('\n')).then(() => toast('Copied'), () => toast('Copy failed')),
+        class: 'btn small', type: 'button', 'data-tip': 'Copy the main questions as a numbered list',
+        onclick: () => navigator.clipboard.writeText(mainPrompts.map((p, k) => `${k + 1}. ${p.question}`).join('\n')).then(() => toast('Copied'), () => toast('Copy failed')),
       }, 'Copy') : null),
     F.prompts.length
-      ? h('ol', { class: 'prompts' }, F.prompts.map((p) => h('li', null,
-        h('div', null, h('span', { class: `pill ${p.flagged ? 'warn' : 'accent'}` }, p.title)),
-        h('div', { class: 'q' }, p.question),
-        moment(p.i, `Show at ${fmtClock(tl.clock[p.i])}`),
-        N0 && (() => {
-          const a = N0.prompts[p.i] || (N0.prompts[p.i] = { answer: '', outcome: '' });
-          const ta = h('textarea', { rows: 2, placeholder: 'What the student said', 'aria-label': 'Student’s answer' });
-          ta.value = a.answer || '';
-          ta.addEventListener('input', () => {
-            a.answer = ta.value;
-            saveNotes();
-          });
-          const sel = h('select', { 'aria-label': 'Outcome' }, Object.entries(OUTCOMES).map(([k, v]) => h('option', { value: k, selected: (a.outcome || '') === k }, v)));
-          sel.addEventListener('change', () => {
-            a.outcome = sel.value;
-            saveNotes();
-          });
-          return h('div', { class: 'checkin' }, ta, sel);
-        })())))
+      ? [h('ol', { class: 'prompts' }, mainPrompts.map(promptItem)),
+        extraPrompts.length ? h('details', { class: 'more-prompts' },
+          h('summary', { 'data-tip': 'Other moments worth asking about, if there’s time' }, `More questions (${extraPrompts.length})`),
+          h('ol', { class: 'prompts', start: mainPrompts.length + 1, style: `counter-reset: q ${mainPrompts.length}` },extraPrompts.map(promptItem))) : null]
       : h('p', { class: 'empty-state' }, 'Not enough writing yet to suggest questions.'),
     N0 && (() => {
       const ta = h('textarea', { rows: 3, placeholder: 'Anything else from the check-in', 'aria-label': 'Check-in notes' });
@@ -326,6 +315,28 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
     })(),
   );
 
+  function promptItem(p) {
+    return h('li', null,
+      h('div', null, h('span', { class: `pill ${p.flagged ? 'warn' : 'accent'}` }, p.title)),
+      h('div', { class: 'q' }, p.question),
+      p.i != null ? moment(p.i, `Show at ${fmtClock(tl.clock[p.i])}`) : null,
+      N0 && (() => {
+        const a = N0.prompts[p.key] || (N0.prompts[p.key] = { answer: '', outcome: '' });
+        const ta = h('textarea', { rows: 2, placeholder: 'What the student said', 'aria-label': 'Student’s answer' });
+        ta.value = a.answer || '';
+        ta.addEventListener('input', () => {
+          a.answer = ta.value;
+          saveNotes();
+        });
+        const sel = h('select', { 'aria-label': 'Outcome' }, Object.entries(OUTCOMES).map(([k, v]) => h('option', { value: k, selected: (a.outcome || '') === k }, v)));
+        sel.addEventListener('change', () => {
+          a.outcome = sel.value;
+          saveNotes();
+        });
+        return h('div', { class: 'checkin' }, ta, sel);
+      })());
+  }
+
   // ---------- overview: replay ----------
   const doc = h('div', { class: 'replay-doc', tabindex: '0', 'aria-label': 'The document at the selected moment' });
   const meta = h('div', { class: 'replay-meta' });
@@ -338,9 +349,16 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
   const playBtn = h('button', { class: 'btn small primary', type: 'button', 'data-tip': 'Play back the writing (long breaks are skipped)' }, '▶ Play');
   const speedSel = h('select', { 'aria-label': 'Playback speed', 'data-tip': 'Playback speed' }, SPEEDS.map((v) => h('option', { value: v, selected: v === 16 }, `${v}×`)));
   const srcToggle = F.replaySrc ? h('label', { class: 'check small', style: 'margin:0', 'data-tip': 'Show what the student pasted into the sources panel' }, h('input', { type: 'checkbox' }), 'Sources') : null;
+  const followBtn = h('button', {
+    class: 'btn small primary follow-btn hidden', type: 'button', 'data-tip': 'Scroll back to where the writing is happening, and keep it in view',
+    onclick: () => {
+      setFollow(true);
+      scrollToCaret(true);
+    },
+  }, '↓ Follow writing');
   const aside = h('aside', { class: 'replay card', id: 'replay' },
-    sectionHead('Replay', 'Scrub or play through the writing. The latest changes are highlighted; deleted text shows struck through for a moment.'),
-    doc, meta,
+    sectionHead('Replay', 'Scrub or play through the writing. The latest changes are highlighted; deleted text shows struck through for a moment. Scroll freely while it plays; “Follow writing” brings you back.'),
+    h('div', { class: 'replay-doc-wrap' }, doc, followBtn), meta,
     h('div', { class: 'scrub' }, range, ticks),
     h('div', { class: 'replay-controls' },
       playBtn, speedSel,
@@ -353,6 +371,32 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
   const replayStyle = `${docStyleCss(style)};--doc-size:10.5pt`.replace(/"/g, '&quot;');
   let idx = Math.max(0, N - 1);
   let showSrc = false;
+
+  // The replay keeps the writing in view until the reader scrolls away; then it stays put
+  // and offers a button to catch up.
+  let follow = true;
+  function setFollow(on) {
+    follow = on;
+    followBtn.classList.toggle('hidden', on);
+  }
+  function scrollToCaret(force) {
+    const caret = doc.querySelector('.caret');
+    if (!caret) return;
+    const top = caret.getBoundingClientRect().top - doc.getBoundingClientRect().top + doc.scrollTop;
+    if (force || top < doc.scrollTop + 20 || top > doc.scrollTop + doc.clientHeight - 40) doc.scrollTop = Math.max(0, top - doc.clientHeight / 3);
+  }
+  const leave = () => {
+    if (follow) setFollow(false);
+  };
+  doc.addEventListener('wheel', leave, { passive: true });
+  doc.addEventListener('touchmove', leave, { passive: true });
+  doc.addEventListener('keydown', (ev) => {
+    if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(ev.key)) leave();
+  });
+  // Dragging the scrollbar: a press beside the content.
+  doc.addEventListener('mousedown', (ev) => {
+    if (ev.offsetX > doc.clientWidth) leave();
+  });
   function render(i) {
     if (!N) {
       doc.textContent = '(empty)';
@@ -382,11 +426,7 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
       doc.innerHTML = `<div class="doc" style="${replayStyle}">${parts.map((p) => `<div class="${p.cls}"${p.label ? ` data-label="${p.label}"` : ''}>${p.html}</div>`).join('')}${notesHtml(st.doc)}</div>`;
       if (!st.text.length) doc.firstChild.insertAdjacentHTML('beforeend', '<div class="muted">(empty page)</div>');
     }
-    const caret = doc.querySelector('.caret');
-    if (caret) {
-      const top = caret.offsetTop - doc.offsetTop;
-      if (top < doc.scrollTop + 20 || top > doc.scrollTop + doc.clientHeight - 40) doc.scrollTop = Math.max(0, top - doc.clientHeight / 3);
-    }
+    if (follow) scrollToCaret(false);
     meta.innerHTML = '';
     meta.append(
       h('span', { 'data-tip': 'Writing time so far, not counting long breaks' }, h('strong', null, fmtClock(tl.clock[idx]))),
@@ -402,7 +442,9 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
   seek = (i, scroll) => {
     select('overview');
     stop();
+    setFollow(true);
     render(i);
+    scrollToCaret(true);
     if (scroll && window.matchMedia('(max-width: 960px)').matches) aside.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
@@ -419,7 +461,9 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
     raf = requestAnimationFrame(frame);
   }
   function play() {
+    setFollow(true);
     if (idx >= N - 1) render(0);
+    scrollToCaret(false);
     vt = tl.clock[idx];
     lastFrame = 0;
     playBtn.textContent = '❚❚ Pause';
@@ -433,6 +477,7 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
   playBtn.addEventListener('click', () => (raf ? stop() : play()));
   range.addEventListener('input', () => {
     stop();
+    setFollow(true);
     render(Number(range.value));
   });
   if (srcToggle) srcToggle.querySelector('input').addEventListener('change', (ev) => {

@@ -186,8 +186,11 @@ docs/        DEPLOY.md, student-data-notice.md
 - **Signal definitions**, where the spec is informal:
   - *Revision reach:* edits made before the document's last sentence.
   - *Linearity:* final characters inserted with only whitespace after them.
-  - *Transcription stretch:* a run of typing at the cursor, with speed measured over 100-character chunks, excluding time away.
-  - *Paste, then retype:* matches the length of a linear run at its end or at any pause of 5 s or more.
+  - *Typed straight through* (transcription): a run of typing at the cursor, with speed measured over 100-character chunks, excluding time away.
+  - *Tried to paste, then typed the same amount:* matches the length of a linear run at its end or at any pause of 5 s or more.
+  - *Typing faster than people type:* 300+ characters between pauses at 140+ words a minute. Not applied to dictated text.
+  - *Repeated paste attempts:* 3 or more blocked pastes.
+- **Flag wording:** each flag has a plain-language title and explanation, with the measurements in a smaller line beneath. Integrity failures say what was changed, where (a quote of both versions) and when (writing time and date).
 
 All thresholds are starting values to calibrate in a pilot. The anonymised export is meant for exactly that.
 

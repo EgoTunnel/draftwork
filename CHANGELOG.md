@@ -11,9 +11,23 @@ Draftwork follows [semantic versioning](https://semver.org/). The file format is
 
 ### For instructors
 - **Spell check option:** a new assignment setting allows or turns off the browser's spelling and grammar suggestions.
+- **Clearer flags:** every flag has a plain-language title and explanation, with the measurements and thresholds in a smaller line beneath. For example, "Transcription stretch" is now "Typed straight through, like copying".
+- **Integrity failures explained:** each failure names what was changed (for example "Submitted text doesn't match its history" or "Student name or start time was changed"), quotes the submitted and recorded versions where they differ, and says when in the writing it happened, with a button to jump there.
+- **New flags:**
+  - *Typing faster than people type*: long stretches at 140+ words a minute. Not applied to dictated text.
+  - *Repeated paste attempts*: 3 or more blocked pastes.
+- **More questions to ask:**
+  - a paste without a source;
+  - the student's AI-use disclosure;
+  - the most reworked paragraph;
+  - returning to the opening as the draft grew;
+  - the most productive return session.
+  Five appear as before; up to four more are under **More questions**.
 
 ### Fixes
 - The "Where's this from?" prompt shows the pasted text cleanly over two lines.
+- **Replay scrolling:** the replay now keeps the writing in view as it plays, instead of jumping back to the top. Scrolling away while it plays is left alone, and a **Follow writing** button brings you back.
+- "Written unusually quickly" no longer applies to text that was mostly dictated.
 
 The file format stays `draftwork/1`. The new fields are optional, and documents without them hash exactly as before.
 

@@ -40,7 +40,22 @@ export function snippet(text, words = 8) {
   return w.slice(0, words).join(' ') + (w.length > words ? '…' : '');
 }
 
-const ORDINALS = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
+// A run of typing may start with a short title line; quote from the first real paragraph.
+const bodyOf = (t) => String(t).split('\n').find((l) => l.trim().length >= 40) || t;
+
+// [start, end] of the first paragraph long enough to be the opening (skipping a title).
+function openingSpan(text) {
+  let a = 0;
+  while (a < text.length) {
+    let b = text.indexOf('\n', a);
+    if (b < 0) b = text.length;
+    if (b - a >= 150) return [a, b];
+    a = b + 1;
+  }
+  return null;
+}
+
+const ORDINALS =['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
 const ordinal = (k) => ORDINALS[k] || `${k + 1}th`;
 
 function paragraphIndex(text, p) {
@@ -134,6 +149,8 @@ export async function analyzeFile(file, { expectedConfigHash = null, knownConfig
   const atEnd = [];
   const charOrigin = [];
   let replayError = null;
+  let replayErrorAt = null;
+  let curI = 0;
   let active = 0;
   let prevT = null;
   let typed = 0;
@@ -154,6 +171,8 @@ export async function analyzeFile(file, { expectedConfigHash = null, knownConfig
   const pasteBlocked = [];
   const untrusted = [];
   const srcPastes = [];
+  const openingVisits = [];
+  let inOpeningPrev = false;
   let textEvents = 0;
   let behindEvents = 0;
 
@@ -195,6 +214,7 @@ export async function analyzeFile(file, { expectedConfigHash = null, knownConfig
   try {
     for (let i = 0; i < N; i++) {
       const e = events[i];
+      curI = i;
       if (e.s !== i) problems.seq.push(i);
       if (e.k === 'session_start' || !sessions.length) {
         if (e.k !== 'session_start') problems.order.push(`event ${i} comes before any session start`);
@@ -336,6 +356,14 @@ export async function analyzeFile(file, { expectedConfigHash = null, knownConfig
             if (x) endEpisode();
           } else if (x) endEpisode();
 
+          // returns to the opening paragraph once the draft has moved well past it
+          {
+            const op = openingSpan(text);
+            const inOpening = !!op && e.p >= op[0] && e.p <= op[1] && text.length - op[1] >= 600;
+            if (inOpening && !inOpeningPrev) openingVisits.push({ i, len: text.length });
+            inOpeningPrev = inOpening;
+          }
+
           if (x.length > T.unusual_insert_chars) largeInserts.push({ i, len: x.length, k: e.k, it: e.it, from: e.from, label: inputLabel(e, config.policy) });
 
           textEvents++;
@@ -361,6 +389,7 @@ export async function analyzeFile(file, { expectedConfigHash = null, knownConfig
     }
   } catch (err) {
     replayError = err.message || String(err);
+    replayErrorAt = curI;
   }
   endRun();
   endBurst();
@@ -373,11 +402,11 @@ export async function analyzeFile(file, { expectedConfigHash = null, knownConfig
     replayText: text, replaySrc: src, replayFormat: model.format(),
     raw: {
       pauses, iki, largeInserts, delEpisodes, structural, blurs, runs, bursts, awayBursts, pasteBlocked, untrusted,
-      srcPastes, textEvents, behindEvents, typed, deletedChars, atEnd, active, charOrigin,
+      srcPastes, openingVisits, textEvents, behindEvents, typed, deletedChars, atEnd, active, charOrigin,
     },
   };
 
-  A.integrity = await integrityChecks(A, { replayError, problems, cpEnds, expectedConfigHash, knownConfigHashes });
+  A.integrity = await integrityChecks(A, { replayError, replayErrorAt, problems, cpEnds, expectedConfigHash, knownConfigHashes });
   A.signals = computeSignals(A);
   A.metrics = {
     words: countWords(file.final.text),
@@ -390,31 +419,63 @@ export async function analyzeFile(file, { expectedConfigHash = null, knownConfig
 
 // ---------- layer 1 ----------
 
-async function integrityChecks(A, { replayError, problems, cpEnds, expectedConfigHash, knownConfigHashes }) {
+async function integrityChecks(A, { replayError, replayErrorAt, problems, cpEnds, expectedConfigHash, knownConfigHashes }) {
   const { file, events, tl, T } = A;
   const checks = [];
+  const N = events.length;
+  const at = (i) => Math.max(0, Math.min(i, N - 1));
+  const whenRange = (a, b) => {
+    const day = new Date(tl.abs[at(a)]).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    return `${fmtClock(tl.clock[at(a)])}–${fmtClock(tl.clock[at(b)])} of writing time (from ${day})`;
+  };
 
   // 1. replay reproduces final_text
   {
     const finalHash = await sha256Hex(file.final.text);
     let status = 'pass';
-    let detail = `${events.length.toLocaleString()} events replay to the submitted text exactly.`;
+    let detail = `${N.toLocaleString()} edits replay to the submitted text exactly.`;
+    let explain = null;
     if (replayError) {
       status = 'fail';
-      detail = `Replay stopped: ${replayError}.`;
+      detail = 'The recorded edits can’t be replayed.';
+      explain = {
+        title: 'Edit history is broken',
+        text: 'Replaying the recorded edits fails partway through: one edit refers to part of the document that doesn’t exist. Files saved by Draftwork always replay cleanly, so this one was altered or damaged after it was written.',
+        technical: replayError, i: replayErrorAt,
+      };
     } else if (A.replayText !== file.final.text) {
       status = 'fail';
       const d = firstDiff(A.replayText, file.final.text);
-      detail = `The replayed text differs from the submitted text from character ${d} on.`;
+      // Show both versions from a word boundary a little before the first difference.
+      let s = Math.max(0, d - 30);
+      if (s > 0) s = A.replayText.indexOf(' ', s) + 1 || s;
+      if (s > d) s = d;
+      const around = (t) => {
+        if (s >= t.length) return '(nothing)';
+        const out = (s > 0 ? '…' : '') + t.slice(s, d + 30).replace(/\s+/g, ' ') + (d + 30 < t.length ? '…' : '');
+        return `“${out}”`;
+      };
+      const where = file.final.text.length ? Math.round((d / file.final.text.length) * 100) : 0;
+      detail = 'The submitted text isn’t what the recorded edits produce.';
+      explain = {
+        title: 'Submitted text doesn’t match its history',
+        text: `Replaying every recorded edit doesn’t give the text that was submitted. They first differ ${where <= 5 ? 'right at the start' : `about ${where}% of the way through`}: the submitted text reads ${around(file.final.text)}, but the edit history gives ${around(A.replayText)}. Files saved by Draftwork always match, so the submitted text or its history was changed by hand after writing.`,
+        technical: `First difference at character ${d}.`,
+      };
+      // The edit that wrote that spot in the replayed text.
+      const o = A.raw.charOrigin[Math.min(d, A.raw.charOrigin.length - 1)];
+      if (o != null) explain.i = o < 0 ? -1 - o : o;
     } else if (finalHash !== file.final.hash) {
       status = 'fail';
-      detail = 'The submitted text does not match its stored hash.';
+      detail = 'The submitted text no longer matches its fingerprint.';
+      explain = { title: 'Submitted text was altered', text: 'The submitted text no longer matches the fingerprint saved with it, so it was changed after the file was saved.' };
     } else if (canonical(A.replayFormat) !== canonical(file.final.format || null)) {
       status = 'fail';
-      detail = 'The text matches, but the submitted formatting differs from the replay.';
+      detail = 'The words match, but the formatting doesn’t.';
+      explain = { title: 'Formatting was altered', text: 'The words match the edit history, but the formatting stored with the submission (styles, fonts, footnotes and so on) differs from what the edits produce, so it was changed after writing.' };
     }
     checks.push({
-      id: 'replay', label: 'Edit history rebuilds the submitted text', status, detail,
+      id: 'replay', label: 'Edit history rebuilds the submitted text', status, detail, explain,
       tip: 'Replaying every recorded edit from an empty page must produce exactly the submitted document.',
     });
   }
@@ -422,36 +483,90 @@ async function integrityChecks(A, { replayError, problems, cpEnds, expectedConfi
   // 2. checkpoint chain
   A.cpHashes = [];
   {
+    // Technical notes for the details line, and structured issues for the plain explanation.
     const errs = [];
-    if (problems.seq.length) errs.push(`event sequence numbers skip or repeat (first at ${problems.seq[0]})`);
+    const issues = { missing: false, changed: [], docOff: [], seed: false, relinked: [], uncovered: 0, none: false, order: [] };
+    if (problems.seq.length) {
+      errs.push(`event sequence numbers skip or repeat (first at ${problems.seq[0]})`);
+      issues.missing = true;
+    }
     let prev = await chainSeed(file.assignment.config_hash, file.header);
     let expectStart = 0;
     for (let k = 0; k < file.checkpoints.length; k++) {
       const cp = file.checkpoints[k];
-      if (cp.c !== k) errs.push(`checkpoint ${k} is numbered ${cp.c}`);
+      if (cp.c !== k) {
+        errs.push(`checkpoint ${k} is numbered ${cp.c}`);
+        issues.order.push(k);
+      }
       if (!Array.isArray(cp.range) || cp.range[0] !== expectStart || cp.range[1] < cp.range[0]) {
         errs.push(`checkpoint ${k} does not continue from event ${expectStart}`);
+        issues.order.push(k);
         break;
       }
       const slice = events.slice(cp.range[0], cp.range[1] + 1);
-      if (slice.length !== cp.range[1] - cp.range[0] + 1) errs.push(`checkpoint ${k} covers events that are missing`);
-      else if (await eventsHash(slice) !== cp.events_hash) errs.push(`events in checkpoint ${k} were changed`);
+      if (slice.length !== cp.range[1] - cp.range[0] + 1) {
+        errs.push(`checkpoint ${k} covers events that are missing`);
+        issues.missing = true;
+      } else if (await eventsHash(slice) !== cp.events_hash) {
+        errs.push(`events in checkpoint ${k} were changed`);
+        issues.changed.push(cp.range);
+      }
       const docAt = cpEnds.get(cp.range[1]);
-      if (docAt == null || await sha256Hex(docAt) !== cp.doc_hash) errs.push(`document at checkpoint ${k} does not match the replay`);
-      if (cp.prev !== prev) errs.push(`checkpoint ${k} does not link to the one before it`);
+      if (docAt == null || await sha256Hex(docAt) !== cp.doc_hash) {
+        errs.push(`document at checkpoint ${k} does not match the replay`);
+        issues.docOff.push(cp.range);
+      }
+      if (cp.prev !== prev) {
+        errs.push(`checkpoint ${k} does not link to the one before it`);
+        if (k === 0) issues.seed = true;
+        else issues.relinked.push(k);
+      }
       prev = await checkpointHash(cp);
       A.cpHashes.push(prev);
       expectStart = cp.range[1] + 1;
     }
-    if (expectStart < events.length) errs.push(`${events.length - expectStart} events after the last checkpoint are not covered`);
-    if (!file.checkpoints.length && events.length) errs.push('there are no checkpoints');
+    if (expectStart < N && file.checkpoints.length) {
+      errs.push(`${N - expectStart} events after the last checkpoint are not covered`);
+      issues.uncovered = N - expectStart;
+    }
+    if (!file.checkpoints.length && N) {
+      errs.push('there are no checkpoints');
+      issues.none = true;
+    }
+
+    const SEALS = 'As a student writes, Draftwork seals the edit history in blocks of about a minute and timestamps each seal.';
+    let explain = null;
+    if (issues.missing) {
+      explain = { title: 'Edits are missing from the history', text: 'Draftwork numbers every edit as it is recorded. Some numbers are skipped or repeated, so edits were removed from, or added to, the history afterwards.' };
+    } else if (issues.changed.length || issues.docOff.length) {
+      // Edits changed in one block make every later document differ too; describe the cause.
+      const blocks = issues.changed.length ? issues.changed : issues.docOff;
+      const [a, b] = blocks[0];
+      const more = blocks.length - 1;
+      const knock = issues.docOff.some((r) => r[0] > a);
+      explain = {
+        title: 'Edit history was changed after it was recorded',
+        text: `${SEALS} The edits recorded during ${whenRange(a, b)} no longer match their seal${more ? `, and neither ${more === 1 ? 'does 1 other block' : `do ${more} other blocks`}` : ''}, so they were changed after they were recorded.${knock ? ' Everything written after that point no longer matches its seals either, because it builds on the changed edits.' : ''}`,
+        i: a,
+      };
+    } else if (issues.seed && !issues.relinked.length && !issues.order.length) {
+      explain = { title: 'Student name or start time was changed', text: 'The sealed history is tied to the student’s name and the time the file was started. They no longer match, so the name or start time in the file was edited, for example to hand in someone else’s work under another name.' };
+    } else if (issues.order.length || issues.relinked.length || issues.seed) {
+      explain = { title: 'Parts of the history were removed or rearranged', text: `${SEALS} Each seal is linked to the one before it, and those links are broken, so sealed parts of the history were removed, reordered or replaced.` };
+    } else if (issues.uncovered) {
+      explain = { title: 'The end of the history isn’t sealed', text: `The last ${issues.uncovered.toLocaleString()} edits aren’t covered by any seal. Draftwork seals everything when it saves a file, so these edits were added to the file afterwards.`, i: N - issues.uncovered };
+    } else if (issues.none) {
+      explain = { title: 'The history has no seals', text: 'Draftwork seals and timestamps the history as students write. This file has none, so it wasn’t produced by Draftwork’s writing page.' };
+    }
+    if (explain) explain.technical = cap(errs.slice(0, 4).join('; ')) + '.';
     checks.push({
       id: 'chain',
       label: 'History has not been edited',
       tip: 'The checkpoint chain is unbroken, and the document at every checkpoint matches the replay.',
       status: errs.length ? 'fail' : 'pass',
-      detail: errs.length ? cap(errs.slice(0, 3).join('; ')) + '.'
-        : file.checkpoints.length === 1 ? '1 checkpoint, matching the replay.' : `${file.checkpoints.length} checkpoints, all linked and matching.`,
+      explain,
+      detail: errs.length ? explain.title + '.'
+        : file.checkpoints.length === 1 ? '1 sealed block, matching the replay.' : `${file.checkpoints.length} sealed blocks, all linked and matching.`,
     });
   }
 
@@ -460,12 +575,15 @@ async function integrityChecks(A, { replayError, problems, cpEnds, expectedConfi
     const actual = await sha256Hex(canonical(file.assignment.config));
     let status;
     let detail;
+    let explain = null;
     if (actual !== file.assignment.config_hash) {
       status = 'fail';
       detail = 'The assignment settings in the file were changed after writing.';
+      explain = { title: 'Assignment settings were changed', text: 'The assignment’s settings stored in the file (such as whether pasting was allowed) were edited after writing, for example to make it look as if pasting had been permitted.' };
     } else if (expectedConfigHash) {
       status = actual === expectedConfigHash ? 'pass' : 'fail';
       detail = status === 'pass' ? `“${file.assignment.config.title}”` : 'Written for a different assignment.';
+      if (status === 'fail') explain = { title: 'Written for a different assignment', text: `This file was written for “${file.assignment.config.title}”, not for this assignment.` };
     } else if (knownConfigHashes) {
       status = knownConfigHashes.has(actual) ? 'pass' : 'unknown';
       detail = status === 'pass'
@@ -476,7 +594,7 @@ async function integrityChecks(A, { replayError, problems, cpEnds, expectedConfi
       detail = 'No assignment to compare against.';
     }
     checks.push({
-      id: 'config', label: 'Written for this assignment', status, detail,
+      id: 'config', label: 'Written for this assignment', status, detail, explain,
       tip: "The assignment settings stored in the file (title, paste rules, limits) match the instructor's copy exactly.",
     });
   }
@@ -493,7 +611,12 @@ async function integrityChecks(A, { replayError, problems, cpEnds, expectedConfi
       label: 'Times are in order',
       tip: 'Event times only move forward within each session, and sessions do not overlap.',
       status: errs.length ? 'fail' : 'pass',
-      detail: errs.length ? cap(errs.slice(0, 3).join('; ')) + '.' : `${S.length} session${S.length === 1 ? '' : 's'}, in order.`,
+      detail: errs.length ? 'The recorded times are impossible.' : `${S.length} session${S.length === 1 ? '' : 's'}, in order.`,
+      explain: errs.length ? {
+        title: 'Recorded times are impossible',
+        text: 'The times recorded for the edits go backwards, or two writing sessions overlap. That can’t happen while writing normally, so the times in the file were edited.',
+        technical: cap(errs.slice(0, 3).join('; ')) + '.',
+      } : null,
     });
   }
 
@@ -537,8 +660,25 @@ async function integrityChecks(A, { replayError, problems, cpEnds, expectedConfi
     let status = errs.length ? 'fail' : 'pass';
     if (!errs.length && stamped === 0) status = 'unknown';
     else if (!errs.length && demo) status = 'warn';
+    let explain = null;
+    if (errs.length) {
+      const e = errs[0];
+      let text;
+      if (/not an approved timestamp service/.test(e)) {
+        text = `The timestamps in this file come from a service Draftwork doesn’t accept (“${[...signers][0] || 'unknown'}”). Real timestamps come from known public services, so these were most likely made by someone running their own service to backdate a history.`;
+      } else if (/demo timestamp service/.test(e)) {
+        text = 'The file was timestamped by Draftwork’s test service, which this assignment doesn’t accept. The student may have written in a test copy of Draftwork or used the wrong link; ask how they opened the assignment.';
+      } else if (/before the time its events claim/.test(e)) {
+        text = 'A timestamp shows a time earlier than the writing it covers, which is impossible, so the recorded times were edited.';
+      } else if (/time-stamping certificate|valid at the stamp time/.test(e)) {
+        text = 'A timestamp was signed with a certificate that isn’t valid for timestamping at that time, so it can’t vouch for when the writing happened.';
+      } else {
+        text = 'A timestamp doesn’t match the part of the history it’s attached to, so either the history or its timestamps were edited.';
+      }
+      explain = { title: 'Timestamps don’t check out', text, technical: cap(errs.slice(0, 3).join('; ')) + '.' };
+    }
     const bits = [];
-    if (errs.length) bits.push(cap(errs.slice(0, 3).join('; ')) + '.');
+    if (errs.length) bits.push(`${explain.title}.`);
     else if (stamped) bits.push(`${stamped} verified, from ${[...signers].join(', ')}.`);
     if (demo && !errs.length) bits.push('Demo timestamps: accepted because this is a test assignment.');
     if (missing) bits.push(`${missing} not stamped.`);
@@ -548,6 +688,7 @@ async function integrityChecks(A, { replayError, problems, cpEnds, expectedConfi
       label: 'Timestamps are verified',
       tip: 'Each checkpoint carries an RFC 3161 timestamp from an outside service. Each must be signed by an approved timestamp service (verified up to a pinned certificate authority), and its time must match the recorded times.',
       status,
+      explain,
       detail: bits.join(' '),
     });
   }
@@ -636,7 +777,7 @@ function computeSignals(A) {
     },
     {
       id: 'focus', name: 'Focus pattern', measures: 'Window blurs followed by fast, pause-free bursts',
-      transcription: '"Away, then burst" repeated', benign: 'Checking notes or sources in another tab',
+      transcription: 'Leaving the window, then writing quickly, again and again', benign: 'Checking notes or sources in another tab',
       value: `${raw.blurs.length} time${raw.blurs.length === 1 ? '' : 's'} away (${fmtDuration(awayMs)} total); away-then-burst ×${raw.awayBursts.length}`,
       metric: raw.awayBursts.length, fmt: (x) => String(x), unit: 'away-then-burst',
     },
@@ -720,22 +861,27 @@ export function sharedPassages(A, B, min) {
 // ---------- layer 2 and 4 ----------
 
 const BENIGN = {
-  integrity: ['A bug in Draftwork itself. Check the file with the student before drawing conclusions.'],
-  gap: ['Lost internet connection or a timestamp relay outage while writing', 'Laptop went to sleep with the page open'],
-  untrusted: ['A browser extension (grammar checker, translator, password manager) tried to change the text'],
-  unusual: ['Dictation or IME in a browser whose input type is not yet in the compatibility matrix', 'Autocorrect replacing a long span'],
-  retype: ['Tried to paste their own notes or outline from another file, then typed them in', 'Coincidence of length'],
-  transcription: ['Writing to a detailed outline', 'Drafted on paper first', 'Fluent typist on familiar material', 'Confident writer'],
+  integrity: ['A fault in Draftwork itself. It’s rare, but talk with the student before drawing conclusions, and ask whether they opened or saved the file in another program.'],
+  gap: ['The internet connection dropped while they wrote', 'The laptop went to sleep with the page open', 'The timestamp service was briefly down'],
+  untrusted: ['A browser extension (grammar checker, translator, password manager) tried to change the text. Nothing it tried went in.'],
+  unusual: ['Dictation or a keyboard for another language, in a browser Draftwork doesn’t fully recognise', 'Autocorrect replacing a long stretch of text'],
+  retype: ['They tried to paste their own notes or outline from another file, then typed them in', 'The lengths matched by coincidence'],
+  transcription: ['Writing from a detailed outline', 'Drafted on paper first and typed it up', 'A fluent typist writing about familiar material', 'A confident writer who revises in their head'],
   away: ['Checking notes or sources in another tab', 'Reading the prompt or rubric in another window'],
-  fast: ['Fast writer', 'Drafted on paper first'],
-  rhythm: ['Weak signal; some practised typists are very regular'],
+  fast: ['A fast writer', 'Drafted on paper first, or planned it in detail', 'Dictation through software Draftwork didn’t recognise as dictation'],
+  rhythm: ['A weak signal on its own: some practised typists are very regular'],
   quotes: ['An assignment built around close reading or analysis of a text', 'Long block quotations the assignment asked for'],
-  overlap: ['Both quoted the same source without using the sources panel', 'Shared wording from the assignment prompt or class notes', 'Collaboration that the assignment allowed'],
+  overlap: ['Both quoted the same source without using the sources panel', 'Wording from the assignment prompt or class notes', 'Collaboration the assignment allowed'],
+  speed: ['A very fast typist (competitive typists can reach 150+ words a minute for short stretches)', 'Dictation software that types rather than using the browser’s own dictation'],
+  pastes: ['Habit: pressing Ctrl+V for their own notes or outline', 'They didn’t realise pasting was turned off and kept trying'],
 };
 
-function flag(kind, id, title, reason, moments, benign) {
-  return { kind, id, title, reason, moments: moments || [], benign: benign || [] };
+// reason: plain description. detail: the measurements and thresholds behind it, shown smaller.
+function flag(kind, id, title, reason, moments, benign, detail) {
+  return { kind, id, title, reason, detail: detail || '', moments: moments || [], benign: benign || [] };
 }
+
+const plural = (n, one, many = one + 's') => `${n.toLocaleString()} ${n === 1 ? one : many}`;
 
 // Combines one analysis with its class and the student's earlier files.
 // cohort: all analyses for the same assignment (including A). priors: the same student's earlier files.
@@ -745,7 +891,11 @@ export function finalize(A, { cohort = [A], priors = [] } = {}) {
   const clock = (i) => fmtClock(tl.clock[Math.max(0, Math.min(i, events.length - 1))]);
 
   for (const c of A.integrity) {
-    if (c.status === 'fail') flags.push(flag('integrity', 'integrity-' + c.id, 'Integrity failure', `${c.label}: ${c.detail}`, [], BENIGN.integrity));
+    if (c.status !== 'fail') continue;
+    const x = c.explain || { title: c.label, text: c.detail };
+    const moments = x.i != null && events.length ? [{ i: Math.min(x.i, events.length - 1), label: `Where it starts, ${clock(x.i)}` }] : [];
+    flags.push(flag('integrity', 'integrity-' + c.id, x.title, x.text, moments, BENIGN.integrity,
+      `Failed check: ${c.label.toLowerCase()}.${x.technical ? ` ${x.technical}` : ''}`));
   }
 
   // Timestamp gap: more than N minutes of writing between on-time stamps.
@@ -759,18 +909,31 @@ export function finalize(A, { cohort = [A], priors = [] } = {}) {
         const b = points[k];
         const ms = tl.clock[b] - tl.clock[a];
         if (ms > T.stamp_gap_min * 60_000) {
-          flags.push(flag('pattern', 'gap', 'Timestamp gap',
-            `${fmtDuration(ms)} of writing (${clock(a)}–${clock(b)}) has no stamped checkpoint, so that stretch could have been produced elsewhere.`,
-            [{ i: a, label: `Gap ${clock(a)}–${clock(b)}` }], BENIGN.gap));
+          flags.push(flag('pattern', 'gap', 'Stretch without timestamps',
+            `For ${fmtDuration(ms)} of writing (${clock(a)}–${clock(b)} of writing time), no timestamps were recorded. Timestamps are what show when the writing happened, so in principle this part could have been written earlier or elsewhere and added to the file.`,
+            [{ i: a, label: `Gap ${clock(a)}–${clock(b)}` }], BENIGN.gap,
+            `Flagged when more than ${T.stamp_gap_min} minutes of writing pass between on-time timestamps.`));
         }
       }
     }
   }
 
   if (raw.untrusted.length) {
-    flags.push(flag('pattern', 'untrusted', 'Untrusted input',
-      `${raw.untrusted.length} script-generated input attempt${raw.untrusted.length === 1 ? ' was' : 's were'} refused; text injected by a script or extension rather than typed.`,
-      raw.untrusted.slice(0, 5).map((u) => ({ i: u.i, label: `Refused at ${clock(u.i)}` })), BENIGN.untrusted));
+    const n = raw.untrusted.length;
+    flags.push(flag('pattern', 'untrusted', 'Text inserted by a program',
+      `${n === 1 ? 'Once' : `${n} times`}, something other than the keyboard (a script, auto-typing tool or browser extension) tried to put text into the essay. Draftwork refused it${n === 1 ? '' : ' each time'}, so none of that text is in the submission.`,
+      raw.untrusted.slice(0, 5).map((u) => ({ i: u.i, label: `Refused at ${clock(u.i)}` })), BENIGN.untrusted,
+      `Input events the browser marked as not coming from the user: ${[...new Set(raw.untrusted.map((u) => u.it).filter(Boolean))].join(', ') || 'unknown type'}.`));
+  }
+
+  // Many refused pastes: the student had text from elsewhere they wanted in the essay.
+  if (raw.pasteBlocked.length >= T.paste_attempts) {
+    const total = raw.pasteBlocked.reduce((a, b) => a + b.len, 0);
+    const longest = raw.pasteBlocked.reduce((a, b) => (b.len > a.len ? b : a));
+    flags.push(flag('pattern', 'pastes', 'Repeated paste attempts',
+      `The student tried to paste text from outside Draftwork ${raw.pasteBlocked.length} times (${plural(total, 'character')} in all, the longest ${plural(longest.len, 'character')}). Pasting is turned off for this assignment, so none of it went in, but it shows they had text from elsewhere they wanted to use. It’s worth asking what it was.`,
+      raw.pasteBlocked.slice().sort((a, b) => b.len - a.len).slice(0, 5).map((p) => ({ i: p.i, label: `${plural(p.len, 'character')} at ${clock(p.i)}` })),
+      BENIGN.pastes, `Flagged at ${T.paste_attempts} or more blocked pastes.`));
   }
 
   {
@@ -781,9 +944,11 @@ export function finalize(A, { cohort = [A], priors = [] } = {}) {
       return true;
     });
     if (odd.length) {
-      flags.push(flag('pattern', 'unusual', 'Unusual input type',
-        `${odd.length} insertion${odd.length === 1 ? '' : 's'} over ${T.unusual_insert_chars} characters arrived by ${[...new Set(odd.map((o) => o.label))].join(', ')}, a possible route around the paste block.`,
-        odd.slice(0, 5).map((o) => ({ i: o.i, label: `${o.len} chars by ${o.label} at ${clock(o.i)}` })), BENIGN.unusual));
+      const biggest = odd.reduce((a, b) => (b.len > a.len ? b : a));
+      flags.push(flag('pattern', 'unusual', 'Large text entered in one go',
+        `${odd.length === 1 ? 'Once' : `${odd.length} times`}, a block of text (up to ${plural(biggest.len, 'character')}) appeared all at once instead of being typed, by ${[...new Set(odd.map((o) => o.label))].join(', ')}. People don’t normally enter that much text in one action, so this may have been a way around the paste block.`,
+        odd.slice(0, 5).map((o) => ({ i: o.i, label: `${o.len} chars by ${o.label} at ${clock(o.i)}` })), BENIGN.unusual,
+        `Single insertions over ${T.unusual_insert_chars} characters that weren’t typing, dictation, or an allowed paste.`));
     }
   }
 
@@ -803,10 +968,12 @@ export function finalize(A, { cohort = [A], priors = [] } = {}) {
       }
     }
     if (hits.length) {
-      flags.push(flag('pattern', 'retype', 'Paste, then retype',
-        `A blocked paste of ${hits[0].pb.len} characters was followed within ${T.paste_retype_window_min} minutes by linear typing of similar length (${hits[0].len} characters).`,
+      const h0 = hits[0];
+      flags.push(flag('pattern', 'retype', 'Tried to paste, then typed the same amount',
+        `At ${clock(h0.pb.i)} the student tried to paste ${plural(h0.pb.len, 'character')}, which was blocked. ${fmtDuration(Math.max(1000, tl.abs[h0.run.i0] - tl.abs[h0.pb.i]))} later they typed a passage of almost the same length (${plural(h0.len, 'character')}) straight through. That can mean they retyped the text they couldn’t paste.`,
         hits.flatMap((h) => [{ i: h.pb.i, label: `Blocked paste at ${clock(h.pb.i)}` }, { i: h.run.i0, label: `Typing starts at ${clock(h.run.i0)}` }]),
-        BENIGN.retype));
+        BENIGN.retype,
+        `A blocked paste of ${T.paste_retype_min_chars}+ characters, followed within ${T.paste_retype_window_min} minutes by uninterrupted typing within ${Math.round(T.paste_retype_tolerance * 100)}% of its length.${hits.length > 1 ? ` Happened ${hits.length} times.` : ''}`));
     }
   }
 
@@ -814,15 +981,34 @@ export function finalize(A, { cohort = [A], priors = [] } = {}) {
     Number.isFinite(r.rateCv) && r.rateCv < T.transcription_rate_cv);
   if (transcriptionRuns.length) {
     const r = transcriptionRuns.reduce((a, b) => (b.words > a.words ? b : a));
-    flags.push(flag('pattern', 'transcription', 'Transcription stretch',
-      `${r.words} consecutive words with revision ratio ${r.revision.toFixed(2)}, no edits behind the cursor, and steady speed (variation ${r.rateCv.toFixed(2)}): consistent with copying from another screen.`,
-      transcriptionRuns.slice(0, 5).map((x) => ({ i: x.i0, label: `${x.words} words from ${clock(x.i0)}`, run: x })), BENIGN.transcription));
+    flags.push(flag('pattern', 'transcription', 'Typed straight through, like copying',
+      `${r.words} words (“${snippet(bodyOf(r.text), 6)}”) were typed in one go at a very steady speed, with almost no corrections and without going back to change anything. That’s typical of copying text from another screen or a printout; working out ideas while writing usually brings pauses and changes.${transcriptionRuns.length > 1 ? ` There ${transcriptionRuns.length === 2 ? 'is 1 other stretch' : `are ${transcriptionRuns.length - 1} other stretches`} like it.` : ''}`,
+      transcriptionRuns.slice(0, 5).map((x) => ({ i: x.i0, label: `${x.words} words from ${clock(x.i0)}`, run: x })), BENIGN.transcription,
+      `Corrections ${r.revision.toFixed(2)} (deleted ÷ typed; flagged below ${T.transcription_revision}); speed variation ${r.rateCv.toFixed(2)} (below ${T.transcription_rate_cv}); at least ${T.transcription_words} words.`));
   }
 
   if (raw.awayBursts.length >= T.away_burst_count) {
-    flags.push(flag('pattern', 'away', 'Away, then burst',
-      `${raw.awayBursts.length} times the window lost focus for ${T.away_seconds}+ seconds and then ${T.away_burst_words}+ words arrived with no pause over ${T.away_burst_pause_s} seconds.`,
-      raw.awayBursts.slice(0, 5).map((b) => ({ i: b.i, label: `${b.words} words after ${fmtDuration(b.awayMs)} away, ${clock(b.i)}` })), BENIGN.away));
+    flags.push(flag('pattern', 'away', 'Left the window, then wrote quickly',
+      `${raw.awayBursts.length} times the student switched to another window or tab, came back, and then wrote a block of text (${T.away_burst_words}+ words) without stopping to think. That can mean reading text somewhere else and typing it in.`,
+      raw.awayBursts.slice(0, 5).map((b) => ({ i: b.i, label: `${b.words} words after ${fmtDuration(b.awayMs)} away, ${clock(b.i)}` })), BENIGN.away,
+      `Away for ${T.away_seconds}+ seconds, then ${T.away_burst_words}+ words with no pause over ${T.away_burst_pause_s} seconds; flagged at ${T.away_burst_count} or more times.`));
+  }
+
+  // Dictation is legitimately faster than typing, so speed flags don't apply to mostly dictated text.
+  let dictated = 0;
+  for (const o of raw.charOrigin) if (o >= 0 && events[o] && events[o].k === 'ime') dictated++;
+  const mostlyDictated = !!A.header.dictation_mode || dictated > 0.3 * (raw.charOrigin.length || 1);
+
+  // Sustained speed beyond human typing.
+  if (!mostlyDictated) {
+    const fast = raw.bursts.filter((b) => b.chars >= T.speed_chars && b.rate / 5 >= T.speed_wpm);
+    if (fast.length) {
+      const top = fast.reduce((a, b) => (b.rate > a.rate ? b : a));
+      flags.push(flag('pattern', 'speed', 'Typing faster than people type',
+        `${fast.length === 1 ? 'A stretch' : `${fast.length} stretches`} of typing ran at up to ${Math.round(top.rate / 5)} words a minute without a pause. Most people type 30–60 words a minute and very fast typists about 100, so speeds like this usually mean a program typed the text, or it was entered by something other than the keyboard.`,
+        fast.slice(0, 5).map((b) => ({ i: b.i0, label: `${Math.round(b.rate / 5)} words a minute, ${b.chars} chars at ${clock(b.i0)}` })), BENIGN.speed,
+        `Stretches of ${T.speed_chars}+ characters between pauses at ${T.speed_wpm}+ words a minute (5 characters a word).`));
+    }
   }
 
   // Text moved into the essay from the sources panel is a quote; a lot of it, or one very long
@@ -838,11 +1024,12 @@ export function finalize(A, { cohort = [A], priors = [] } = {}) {
     const longLen = longest ? (longest.x || '').length : 0;
     if (share > T.quote_share || longLen > T.quote_chars) {
       const why = share > T.quote_share
-        ? `${Math.round(share * 100)}% of the final text was pasted in from the sources panel`
-        : `one passage of ${longLen.toLocaleString()} characters was pasted in from the sources panel`;
+        ? `${Math.round(share * 100)}% of the submitted text was pasted in from the sources panel`
+        : `One passage of ${plural(longLen, 'character')} (about ${Math.round(longLen / 6)} words) was pasted in from the sources panel`;
       flags.push(flag('pattern', 'quotes', 'Heavy quoting',
-        `${why}. Quotes are fine, but this is also how text from elsewhere could be brought in while pasting is blocked.`,
-        longest ? [{ i: longest.s, label: `${longLen.toLocaleString()}-character quote at ${clock(longest.s)}` }] : [], BENIGN.quotes));
+        `${why}. Quoting is fine, but students can paste anything into the sources panel, so this is also a way to bring in text from elsewhere while pasting is blocked. Check that it reads as quotation.`,
+        longest ? [{ i: longest.s, label: `${longLen.toLocaleString()}-character quote at ${clock(longest.s)}` }] : [], BENIGN.quotes,
+        `Flagged when over ${Math.round(T.quote_share * 100)}% of the text is quoted, or one quote is over ${T.quote_chars} characters. Quoted: ${Math.round(share * 100)}%; longest quote ${longLen} characters.`));
     }
   }
 
@@ -857,9 +1044,10 @@ export function finalize(A, { cohort = [A], priors = [] } = {}) {
     if (found.length) {
       found.sort((x, y) => y.words - x.words);
       const others = [...new Set(found.map((f) => f.other))];
-      flags.push(flag('pattern', 'overlap', 'Shared passage',
-        `${found[0].words} words in a row also appear in ${others.length === 1 ? `${others[0]}’s submission` : `the submissions of ${others.join(', ')}`} (quotes from the sources panel are not counted).`,
-        found.slice(0, 5).map((f) => ({ i: f.ev, label: `${f.words} words shared with ${f.other}`, text: f.text })), BENIGN.overlap));
+      flags.push(flag('pattern', 'overlap', 'Same wording as another student',
+        `A passage of ${found[0].words} words (“${snippet(found[0].text, 8)}”) appears word for word in ${others.length === 1 ? `${others[0]}’s submission` : `the submissions of ${others.join(', ')}`}. Students rarely write that many identical words in a row independently.`,
+        found.slice(0, 5).map((f) => ({ i: f.ev, label: `${f.words} words shared with ${f.other}`, text: f.text })), BENIGN.overlap,
+        `Flagged at ${T.overlap_words}+ identical words in a row with another submission for this assignment. Quotes from the sources panel aren’t counted.`));
     }
   }
 
@@ -868,18 +1056,21 @@ export function finalize(A, { cohort = [A], priors = [] } = {}) {
   if (classOn) {
     const mpw = cohort.map((c) => c.metrics.minutesPerWord).filter(Number.isFinite);
     const cut = percentile(mpw, T.fast_percentile);
-    if (Number.isFinite(A.metrics.minutesPerWord) && A.metrics.minutesPerWord <= cut) {
-      flags.push(flag('pattern', 'fast', 'Too fast for the length',
-        `${fmtDuration(A.metrics.activeMin * 60_000)} of active writing for ${A.metrics.words} words is in the bottom ${T.fast_percentile}% of the class (${cohort.length} submissions).`,
-        [{ i: 0, label: 'Start of writing' }], BENIGN.fast));
+    if (!mostlyDictated && Number.isFinite(A.metrics.minutesPerWord) && A.metrics.minutesPerWord <= cut) {
+      const median = percentile(mpw, 50);
+      flags.push(flag('pattern', 'fast', 'Written unusually quickly',
+        `${A.metrics.words} words in ${fmtDuration(A.metrics.activeMin * 60_000)} of writing time. That’s among the fastest ${T.fast_percentile}% of the class: the typical student took about ${fmtDuration(median * A.metrics.words * 60_000)} for the same length.`,
+        [{ i: 0, label: 'Start of writing' }], BENIGN.fast,
+        `${A.metrics.minutesPerWord.toFixed(2)} minutes per word; class median ${median.toFixed(2)} (${cohort.length} submissions).`));
     }
     const others = cohort.filter((c) => c !== A).map((c) => c.metrics.ikiCv).filter(Number.isFinite);
     const { mean, sd } = meanSd(others);
     const x = A.metrics.ikiCv;
     if (Number.isFinite(x) && others.length && sd > 0 && x < mean - T.rhythm_z * sd && x < Math.min(...others)) {
-      flags.push(flag('pattern', 'rhythm', 'Machine-regular rhythm',
-        `Keystroke timing variation ${x.toFixed(2)} vs. a class average of ${mean.toFixed(2)}: more uniform than anyone else's in the class.`,
-        [{ i: 0, label: 'Start of writing' }], BENIGN.rhythm));
+      flags.push(flag('pattern', 'rhythm', 'Unnaturally even typing',
+        'The time between keystrokes is far more regular than anyone else’s in the class. People speed up and slow down as they type; simple auto-typing programs, which type pasted text for you, keep a near-constant beat.',
+        [{ i: 0, label: 'Start of writing' }], BENIGN.rhythm,
+        `Keystroke timing variation ${x.toFixed(2)}, class average ${mean.toFixed(2)}; flagged more than ${T.rhythm_z} standard deviations below the class and below every other student.`));
     }
   }
 
@@ -897,9 +1088,15 @@ function buildPrompts(A, flags) {
   const clock = (i) => fmtClock(tl.clock[Math.max(0, Math.min(i, events.length - 1))]);
   const prompts = [];
   const used = new Set();
+  // Five main questions, then up to four more under "More questions".
   const add = (p) => {
-    if (prompts.length >= 5 || used.has(p.i) || p.i == null) return;
-    used.add(p.i);
+    if (prompts.length >= 9) return;
+    if (p.i != null) {
+      if (used.has(p.i)) return;
+      used.add(p.i);
+    }
+    p.key = p.key || p.i;
+    if (p.key == null) return;
     prompts.push(p);
   };
 
@@ -909,7 +1106,7 @@ function buildPrompts(A, flags) {
     const m = f.moments[0];
     if (!m) continue;
     let q;
-    if (f.id === 'transcription') q = `This section ("${snippet(m.run.text)}") went in at ${clock(m.i)} with almost no changes. Did you plan it somewhere else first?`;
+    if (f.id === 'transcription') q = `This section ("${snippet(bodyOf(m.run.text))}") went in at ${clock(m.i)} with almost no changes. Did you plan it somewhere else first?`;
     else if (f.id === 'away') q = `At ${clock(m.i)} you came back to the window and wrote without stopping. What were you looking at just before?`;
     else if (f.id === 'retype') q = `At ${clock(m.i)} you tried to paste a passage, then typed one of about the same length. Where was that text from?`;
     else if (f.id === 'unusual') q = `At ${clock(m.i)} a long stretch of text arrived in one go (${m.label.split(' at ')[0]}). How did you enter that part?`;
@@ -919,6 +1116,8 @@ function buildPrompts(A, flags) {
     else if (f.id === 'overlap') q =`This passage ("${snippet(m.text)}") also appears in another submission. Where did the wording come from?`;
     else if (f.id === 'fast') q = 'You wrote this quickly for its length. Walk me through how you prepared before you started typing.';
     else if (f.id === 'rhythm') q = 'Your typing rhythm is unusually even. Tell me about how you typed this one: one sitting, any tools?';
+    else if (f.id === 'speed') q = `At ${clock(m.i)} the text went in faster than most people can type. How did you enter that part?`;
+    else if (f.id === 'pastes') q = 'You tried to paste text several times while writing. What were you trying to bring in, and where was it from?';
     if (q) add({ i: m.i, title: f.title, question: q, flagged: true });
   }
 
@@ -974,12 +1173,82 @@ function buildPrompts(A, flags) {
     });
   }
 
-  // 5. The flattest stretch.
+  // 5. Text pasted from outside without saying where it came from.
+  {
+    const cited = new Set(events.filter((e) => e.k === 'cite').map((e) => e.of));
+    const outside = events.filter((e) => !cited.has(e.s) && (e.x || '').trim().length >= 20 &&
+      (e.k === 'paste_src' || ((e.k === 'ins' || e.k === 'rep') && e.pane !== 'src' && (e.it === 'insertFromPaste' || e.it === 'insertFromDrop'))));
+    const big = outside.sort((a, b) => b.x.length - a.x.length)[0];
+    if (big) {
+      add({
+        i: big.s, title: 'A paste without a source',
+        question: `At ${clock(big.s)} you pasted "${snippet(big.x, 6)}"${big.k === 'paste_src' ? ' into your sources' : ''} without noting where it came from. What's the source?`,
+      });
+    }
+  }
+
+  // 6. The student's AI-use disclosure.
+  const ai = A.header.ai_use;
+  if (ai && ai.used && ai.used !== 'none') {
+    add({
+      key: 'ai', title: 'AI use',
+      question: ai.detail
+        ? `You said you used AI: "${snippet(ai.detail, 12)}". Show me a part where it helped, and what you changed in what it gave you.`
+        : 'You said you used AI for this. What did you use it for, and which parts are most your own?',
+    });
+  }
+
+  // 7. The paragraph the student reworked most often.
+  {
+    const byPara = new Map();
+    for (const d of raw.delEpisodes) {
+      if (d.text.trim().length < 3) continue;
+      if (!byPara.has(d.para)) byPara.set(d.para, []);
+      byPara.get(d.para).push(d);
+    }
+    const [para, eps] = [...byPara].sort((a, b) => b[1].length - a[1].length)[0] || [];
+    if (eps && eps.length >= 4) {
+      const last = eps[eps.length - 1];
+      add({
+        i: last.i, title: 'The most reworked paragraph',
+        question: `You went back to your ${ordinal(para)} paragraph ${eps.length} times to cut or rewrite parts of it. What were you trying to get right?`,
+      });
+    }
+  }
+
+  // 8. Coming back to the opening once the draft had grown.
+  if (raw.openingVisits.length >= 2) {
+    const v = raw.openingVisits[raw.openingVisits.length - 1];
+    add({
+      i: v.i, title: 'Back to the opening',
+      question: `You returned to your opening paragraph ${raw.openingVisits.length} times as the draft grew. How did your introduction change as you worked out your argument?`,
+    });
+  }
+
+  // 9. The later session that added the most.
+  if (A.sessions.length > 1) {
+    let best = null;
+    for (let k = 1; k < A.sessions.length; k++) {
+      const S = A.sessions[k];
+      const before = S.i0 > 0 ? tl.len[S.i0 - 1] : 0;
+      const grew = tl.len[S.i1] - before;
+      if (!best || grew > best.grew) best = { S, grew };
+    }
+    if (best && best.grew >= 300) {
+      const day = new Date(best.S.wall).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+      add({
+        i: best.S.i0, title: 'The most productive return',
+        question: `When you came back to the piece on ${day}, you added about ${Math.round(best.grew / 6)} words. What did you work on that time, and had you planned it beforehand?`,
+      });
+    }
+  }
+
+  // 10. The flattest stretch.
   const flat = raw.runs.filter((r) => r.words >= 60 && r.revision < 0.1).sort((a, b) => b.words - a.words)[0];
   if (flat) {
     add({
       i: flat.i0, title: 'The flattest stretch',
-      question: `This section ("${snippet(flat.text)}") went in with almost no changes. Did you plan it somewhere else first?`,
+      question: `This section ("${snippet(bodyOf(flat.text))}") went in with almost no changes. Did you plan it somewhere else first?`,
     });
   }
 
@@ -992,6 +1261,9 @@ function buildPrompts(A, flags) {
       question: `At ${clock(p.i)} you stopped for ${fmtDuration(p.ms)} before carrying on. What were you deciding?`,
     });
   }
+  prompts.forEach((p, k) => {
+    if (k >= 5) p.extra = true;
+  });
   return prompts;
 }
 

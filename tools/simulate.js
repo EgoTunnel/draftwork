@@ -222,6 +222,18 @@ function composer(sim, r, paras, { speed = 1, sessions = 2, revise = 0.25, quote
       sim.wait(r.range(2000, 6000));
       sim.moveTo(sim.text.length);
     }
+    // later in the draft, go back and adjust the opening's last sentence
+    if (pi >= 2 && r.chance(revise * 0.8)) {
+      const firstBreak = sim.text.indexOf('\n\n');
+      if (firstBreak > 0) {
+        sim.wait(r.range(8000, 30_000));
+        sim.moveTo(firstBreak - 1);
+        sim.backspace(1, 'deleteContentBackward');
+        sim.type(r.pick([', at least at first.', ', or so it seems.', ' in ways worth tracing.']), typing);
+        sim.wait(r.range(2000, 6000));
+        sim.moveTo(sim.text.length);
+      }
+    }
   });
   // cut a paragraph and move it earlier
   const t = sim.text;

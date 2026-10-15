@@ -485,6 +485,7 @@ details summary { cursor: pointer; font-weight: 550; }
 .flag.integrity { border-left-color: var(--bad); }
 .flag + .flag { margin-top: 10px; }
 .flag h3 { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+.flag .flag-detail { margin-top: 6px; font-size: .8rem; color: var(--muted); }
 .flag .benign { margin-top: 8px; font-size: .86rem; }
 .flag .benign summary { font-weight: 550; color: var(--muted); }
 .flag .benign ul { margin: 4px 0 0; padding-left: 18px; color: var(--muted); }
@@ -523,12 +524,17 @@ details summary { cursor: pointer; font-weight: 550; }
   background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-weight: 700;
 }
 .prompts .q { font-family: var(--serif); font-size: 1.08rem; margin: 4px 0 8px; }
+.more-prompts { border-top: 1px solid var(--border); padding-top: 10px; }
+.more-prompts > summary { font-weight: 550; color: var(--muted); cursor: pointer; }
+.more-prompts[open] > summary { margin-bottom: 4px; }
 
 .replay { position: sticky; top: 68px; }
 .replay-doc {
   height: min(52vh, 520px); overflow: auto; background: var(--sheet); color: var(--sheet-text); border: 1px solid var(--border); border-radius: 6px;
   padding: 14px 16px;
 }
+.replay-doc-wrap { position: relative; }
+.follow-btn { position: absolute; right: 14px; bottom: 10px; box-shadow: 0 2px 8px rgb(0 0 0 / .2); }
 .replay-doc .r { background: var(--hl); border-radius: 2px; }
 .replay-doc .r1 { background: var(--hl-strong); border-radius: 2px; }
 .replay-doc .caret { display: inline-block; width: 2px; height: 1.1em; background: var(--accent); vertical-align: text-bottom; margin: 0 -1px; animation: blink 1s steps(1) infinite; text-indent: 0; }

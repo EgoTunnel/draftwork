@@ -145,6 +145,37 @@ test('relabelling a file breaks the chain seed', async () => {
   const copy = structuredClone(file);
   copy.header.student_label = 'Someone Else';
   assert.equal((await integrityOf(copy)).chain, 'fail');
+  const F = finalize(await analyzeFile(copy));
+  assert.deepEqual(F.flags.map((f) => f.title), ['Student name or start time was changed']);
+});
+
+test('integrity flags explain in plain words where the text and its history part ways', async () => {
+  const { file } = await makeFile(async ({ type }) => type('The consequences were lasting.'));
+  const copy = structuredClone(file);
+  copy.final.text = 'The consequences were brief.';
+  copy.final.hash = await sha256Hex(copy.final.text);
+  const f = finalize(await analyzeFile(copy)).flags.find((x) => x.id === 'integrity-replay');
+  assert.equal(f.title, 'Submitted text doesn’t match its history');
+  assert.match(f.reason, /submitted text reads “The consequences were brief\.”, but the edit history gives “The consequences were lasting\.”/);
+  assert.match(f.detail, /character 22/);
+});
+
+test('typing faster than people type, and repeated paste attempts, are flagged', async () => {
+  const { file } = await makeFile(async ({ type, rec, wait }) => {
+    type('A normal start, typed at a normal pace. ');
+    wait(5000);
+    type('Then a long stretch arrives far faster than anyone could type it, steadily and without a single pause, '.repeat(4), 20);
+    for (let k = 0; k < 3; k++) {
+      wait(4000);
+      rec.record({ k: 'paste_blocked', len: 400 + k, it: 'insertFromPaste' });
+    }
+  });
+  const F = finalize(await analyzeFile(file));
+  const ids = F.flags.map((f) => f.id);
+  assert.ok(ids.includes('speed'), `got ${ids}`);
+  assert.ok(ids.includes('pastes'), `got ${ids}`);
+  assert.match(F.flags.find((f) => f.id === 'pastes').reason, /3 times \(1,203 characters in all/);
+  assert.ok(F.prompts.some((p) => p.title === 'Typing faster than people type'));
 });
 
 test('time running backwards fails the timestamp check', async () => {
@@ -181,7 +212,8 @@ test('timestamps from an unapproved service fail, and demo stamps need the assig
   const f = finalize(await analyzeFile(forged.file));
   const tsa = f.integrity.find((c) => c.id === 'tsa');
   assert.equal(tsa.status, 'fail');
-  assert.match(tsa.detail, /not an approved timestamp service|not a time-stamping certificate/);
+  assert.match(tsa.explain.technical, /not an approved timestamp service|not a time-stamping certificate/);
+  assert.match(f.flags.find((x) => x.id === 'integrity-tsa').reason, /doesn’t accept|isn’t valid for timestamping/);
 
   const strict = newConfig({ title: 'Strict' });
   const demo = await makeFile(async ({ type }) => type('Demo stamps'), { config: strict });
@@ -390,11 +422,20 @@ test('simulated class: flags land on the right writers and nowhere else', async 
   const analyses = [];
   for (const { file } of files) analyses.push(await analyzeFile(await parseFile(await serializeFile(file))));
   const flagsOf = {};
+  const promptTitles = [];
   for (const a of analyses) {
     const cohort = analyses.filter((x) => x.cfgHash === a.cfgHash);
     const F = finalize(a, { cohort });
     flagsOf[`${a.header.student_label}|${a.config.title}`] = new Set(F.flags.map((f) => f.id));
-    assert.ok(F.prompts.length >= 1 && F.prompts.length <= 5, 'between one and five prompts');
+    const main = F.prompts.filter((p) => !p.extra);
+    assert.ok(main.length >= 1 && main.length <= 5, 'between one and five main questions');
+    assert.ok(F.prompts.length <= 9, 'at most four more');
+    assert.equal(new Set(F.prompts.map((p) => p.key)).size, F.prompts.length, 'each question has its own notes key');
+    for (const f of F.flags) assert.ok(f.title && f.reason && f.detail, `${f.id} has a title, reason and detail`);
+    promptTitles.push(...F.prompts.map((p) => p.title));
+  }
+  for (const t of ['The most reworked paragraph', 'Back to the opening', 'The most productive return']) {
+    assert.ok(promptTitles.includes(t), `someone in the class gets "${t}"`);
   }
   const get = (label) => flagsOf[Object.keys(flagsOf).find((k) => k.startsWith(label + '|') && k.includes('Cities'))];
   assert.ok(get('T. Ranscriber').has('transcription'));

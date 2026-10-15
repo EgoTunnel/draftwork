@@ -511,6 +511,33 @@ try {
     assert(notice, 'no-relay notice not shown');
     await demo.close(cdpPort);
   });
+
+  await check('replay follows the writing, and lets the reader scroll away while it plays', async () => {
+    const demo = await Page.open(cdpPort);
+    await demo.goto(`${sbase}/instructor.html#demo`);
+    await demo.waitFor('document.querySelectorAll("tr.clickable").length > 15', 30000);
+    await demo.eval(`[...document.querySelectorAll('tr.clickable')].find((r) => r.textContent.includes('Avery')).click(); true`);
+    await demo.waitFor('document.querySelector("#replay .replay-doc .caret")', 20000);
+    const D = `document.querySelector('#replay .replay-doc')`;
+    const caretInView = `(() => { const d = ${D}; const c = d.querySelector('.caret').getBoundingClientRect(); const r = d.getBoundingClientRect(); return c.top >= r.top && c.bottom <= r.bottom; })()`;
+    assert(await demo.eval(`${D}.scrollHeight > ${D}.clientHeight + 100`), 'the replay is too short to test scrolling');
+    assert(await demo.eval(caretInView), 'the end of the writing is not in view');
+    // Play from the middle: the view keeps up with the writing.
+    await demo.eval(`(() => { const r = document.querySelector('#replay input[type=range]'); r.value = Math.round(r.max * 0.6); r.dispatchEvent(new Event('input')); document.querySelector('#replay select').value = '64'; document.querySelector('#replay .replay-controls .primary').click(); return true; })()`);
+    await sleep(600);
+    assert(await demo.eval(caretInView), 'lost the writing while playing');
+    // The reader scrolls to the top: playback carries on and leaves the view alone.
+    await demo.eval(`${D}.dispatchEvent(new WheelEvent('wheel', { deltaY: -500 })); ${D}.scrollTop = 0; true`);
+    await sleep(800);
+    assert((await demo.eval(`${D}.scrollTop`)) < 5, 'jumped away from where the reader scrolled');
+    assert(/Pause/.test(await demo.eval(`document.querySelector('#replay .replay-controls .primary').textContent`)), 'stopped playing');
+    assert(await demo.eval(`!document.querySelector('#replay .follow-btn').classList.contains('hidden')`), 'no "Follow writing" button');
+    await demo.eval(`document.querySelector('#replay .follow-btn').click(); true`);
+    await sleep(300);
+    assert(await demo.eval(caretInView), '"Follow writing" did not bring the writing back into view');
+    assert(await demo.eval(`document.querySelector('#replay .follow-btn').classList.contains('hidden')`), 'button still shown');
+    await demo.close(cdpPort);
+  });
   statics.close();
   await rm(site, { recursive: true, force: true }).catch(() => {});
 } finally {
