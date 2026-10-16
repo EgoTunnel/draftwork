@@ -13,6 +13,7 @@ import { analyzeFile, finalize } from '../public/js/core/analysis.js';
 import { DocModel, MARKS, diffEvents, FOOTNOTE, FONT_KEYS, SIZE_LIST, fontOf, sizeOf } from '../public/js/core/doc.js';
 import { toDocx, zip, toPlainText } from '../public/js/core/export.js';
 import { readZip, lmsName, namesMatch } from '../public/js/core/zipread.js';
+import { makeBackup, parseBackup, mergeNote, mergeNotes, mergeRemoved, isRemoved, notesFor } from '../public/js/core/backup.js';
 
 const mock = await createMockTsa();
 const stampAt = async (hash, when) => toBase64(A.raw(extractToken(await mock.respond(buildRequest(unhex(hash)), when))));
@@ -415,6 +416,38 @@ test('documents without the new features hash exactly as before', () => {
   d.applyPara({ a: 1, b: 1, set: { s: 'h1' } });
   assert.deepEqual(Object.keys(d.format()), ['marks', 'paras']);
   assert.equal(d.hashInput(), 'Plain\nHeading\u0000{"marks":[[13,0]],"paras":[{"al":"l","in":0,"li":"","s":"p"},{"al":"l","in":0,"li":"","s":"h1"}]}');
+});
+
+test('backups merge without losing anyone’s notes, and removals stick', () => {
+  // Two computers (or two colleagues) wrote different parts of the same submission's notes.
+  const home = { prompts: { 3: { answer: 'Cut it for length', outcome: 'ok' } }, flags: { away: 'benign' }, summary: '', updated: '2026-10-10T10:00:00Z' };
+  const office = { prompts: { 3: { answer: '', outcome: 'follow' }, 7: { answer: 'From the reading', outcome: 'ok' } }, flags: {}, summary: 'Seemed fine', updated: '2026-10-11T10:00:00Z' };
+  const m = mergeNote(home, office);
+  assert.deepEqual(m.prompts[3], { answer: 'Cut it for length', outcome: 'follow' }, 'blank answers are filled; the newer outcome wins');
+  assert.deepEqual(m.prompts[7], { answer: 'From the reading', outcome: 'ok' });
+  assert.equal(m.flags.away, 'benign');
+  assert.equal(m.summary, 'Seemed fine');
+  assert.equal(m.updated, office.updated);
+  assert.deepEqual(mergeNote(office, home), m, 'order doesn’t matter');
+
+  const { notes, changed } = mergeNotes({ 'h1:a': home, 'h2:b': home }, { 'h1:a': office, 'h1:c': office, 'h2:b': home });
+  assert.equal(changed, 2, 'one combined, one new, one unchanged');
+  assert.ok(notes['h1:c']);
+  assert.deepEqual(notes['h2:b'], home);
+  assert.deepEqual(Object.keys(notesFor(notes, new Set(['h1']))).sort(), ['h1:a', 'h1:c']);
+
+  // Removed on one computer after it was added: stays removed. Added again later: comes back.
+  const removed = mergeRemoved({ x: '2026-10-01' }, { x: '2026-10-05', y: '2026-10-02' });
+  assert.deepEqual(removed, { x: '2026-10-05', y: '2026-10-02' });
+  assert.ok(isRemoved(removed, 'x', '2026-09-30'));
+  assert.ok(!isRemoved(removed, 'x', '2026-10-06'));
+  assert.ok(!isRemoved(removed, 'z', '2026-09-30'));
+
+  // Shared files carry no removals; anything else is rejected.
+  const shared = parseBackup(JSON.stringify(makeBackup({ assignments: [{ config: { v: 1 }, added: 'a' }], removed: { x: '1' }, shared: true })));
+  assert.equal(shared.removed, undefined);
+  assert.ok(shared.shared);
+  assert.throws(() => parseBackup('{"type":"other"}'), /isn’t a Draftwork backup/);
 });
 
 test('simulated class: flags land on the right writers and nowhere else', async () => {

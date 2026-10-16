@@ -9,6 +9,10 @@ import { DEMO_CONFIG } from './core/demo.js';
 import { sha256Hex } from './core/canon.js';
 import { isZip, readZip, lmsName, namesMatch } from './core/zipread.js';
 import { renderReport, LEVELS, FILE_STATUS } from './ui/report.js';
+import { makeBackup, parseBackup, notesFor, mergeNotes, mergeRemoved, isRemoved } from './core/backup.js';
+import {
+  folderSupported, savedFolder, chooseFolder, forgetFolder, folderPermission, readLatest, writeBackup,
+} from './ui/backupfolder.js';
 import { initTooltips } from './ui/tooltip.js';
 import { appearanceButton } from './ui/appearance.js';
 import { ICONS } from './ui/icons.js';
@@ -57,7 +61,8 @@ function markChanged() {
   setBackupState({ rev: backupState().rev + 1 });
   // Ask the browser not to clear this site's data on its own (it can still be cleared by the user).
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-  if (typeof renderStorageNote === 'function') renderStorageNote();
+  renderStorageNote();
+  scheduleFolderWrite();
 }
 
 let library = loadLibrary();
@@ -65,35 +70,80 @@ const knownHashes = () => new Set(library.map((a) => a.hash));
 
 const studentLink = (code) => new URL(`student.html#a=${code}`, location.href).href;
 
+// Assignments removed on purpose, so merging an older backup doesn't bring them back.
+const REMOVED_KEY = 'draftwork.removed';
+function loadRemoved() {
+  try {
+    return JSON.parse(localStorage.getItem(REMOVED_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+function saveRemoved(r) {
+  try {
+    localStorage.setItem(REMOVED_KEY, JSON.stringify(r));
+  } catch { /* storage unavailable */ }
+}
+
+// extra.fromBackup: keep a removal made later than the backup's copy.
 async function addToLibrary(config, extra = {}) {
+  const { fromBackup, ...rest } = extra;
   const hash = await configHash(config);
   if (library.some((a) => a.hash === hash)) return { hash, existed: true };
-  library.unshift({ hash, config, code: await encodeConfig(config), added: new Date().toISOString(), ...extra });
-  saveLibrary(library, { quiet: !!extra.demo });
+  const removed = loadRemoved();
+  if (fromBackup && isRemoved(removed, hash, rest.added)) return { hash, existed: false, removed: true };
+  if (removed[hash] && !fromBackup) {
+    delete removed[hash];
+    saveRemoved(removed);
+  }
+  library.unshift({ hash, config, code: await encodeConfig(config), added: new Date().toISOString(), ...rest });
+  saveLibrary(library, { quiet: !!rest.demo });
   return { hash, existed: false };
 }
 
-// ---------- backup and restore ----------
+// ---------- backup, sharing and merging ----------
 
 const realAssignments = () => library.filter((a) => !a.demo);
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const plural = (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`;
+
+const fullBackup = () => makeBackup({ assignments: realAssignments(), notes: allNotes(), removed: loadRemoved(), from: location.origin });
+const backupText = (b) => JSON.stringify(b, null, 2);
+
+// The backup folder, once chosen: { dir, ok }, where ok means Draftwork may write to it now.
+let folder = null;
+let folderError = null;
 
 function renderStorageNote() {
   const s = backupState();
   const pending = s.rev - s.backedUpRev;
   const hasData = realAssignments().length > 0 || Object.keys(allNotes()).length > 0;
   const when = s.at ? new Date(s.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : null;
+  const auto = !!(folder && folder.ok && !folderError);
 
-  // Status line in the Back up & restore card.
+  // Status line in the backup card.
   const status = $('#backup-status');
-  if (!hasData) status.textContent = 'Nothing to back up yet.';
+  if (auto) status.textContent = `Backing up automatically to the folder “${folder.dir.name}”${when && hasData ? `. Last saved ${when}` : ''}.`;
+  else if (!hasData) status.textContent = 'Nothing to back up yet.';
   else if (!when) status.innerHTML = '<span class="warn-text">Never backed up.</span> Your assignments exist only in this browser.';
   else if (pending > 0) status.innerHTML = `<span class="warn-text">Changes since your last backup</span> (${escapeHtml(when)}).`;
   else status.textContent = `Backed up ${when}. Nothing has changed since.`;
+  renderFolderBox();
 
-  // Banner at the top of the page whenever there's something not backed up.
+  // Banner at the top of the page whenever something isn't backed up.
   const note = $('#storage-note');
   note.innerHTML = '';
-  if (!hasData || (when && pending <= 0)) {
+  if (folder && !folder.ok && hasData) {
+    note.classList.remove('hidden');
+    note.append(
+      h('div', null, h('strong', null, 'Allow backups to continue. '),
+        `Draftwork needs your OK to keep saving backups to the folder “${folder.dir.name}”. Browsers ask again after they restart.`),
+      h('div', { class: 'row', style: 'margin-top:8px' },
+        h('button', { class: 'btn small primary', type: 'button', onclick: reconnectFolder }, 'Allow'),
+        h('button', { class: 'btn small ghost', type: 'button', onclick: downloadBackup }, 'Download a backup instead')));
+    return;
+  }
+  if (!hasData || auto || (when && pending <= 0)) {
     note.classList.add('hidden');
     return;
   }
@@ -101,86 +151,219 @@ function renderStorageNote() {
   note.append(
     h('div', null,
       h('strong', null, when ? 'You have changes that aren’t backed up. ' : 'Your assignments are saved only in this browser. '),
-      `They’re kept in this browser at ${location.host || 'this address'}, not online. Clearing browsing data, a private window, or another browser, computer or web address won’t have them. Download a backup to keep them safe, and restore it wherever you need them.`),
+      `They’re kept in this browser at ${location.host || 'this address'}, not online. Clearing browsing data, a private window, or another browser, computer or web address won’t have them.`,
+      folderSupported() ? ' Back up automatically to a folder (such as your OneDrive), or download a backup.' : ' Download a backup to keep them safe, and open it wherever you need them.'),
     h('div', { class: 'row', style: 'margin-top:8px' },
-      h('button', { class: 'btn small primary', type: 'button', onclick: downloadBackup }, 'Download backup'),
+      folderSupported() && h('button', { class: 'btn small primary', type: 'button', onclick: connectFolder }, 'Back up to a folder…'),
+      h('button', { class: `btn small ${folderSupported() ? '' : 'primary'}`, type: 'button', onclick: downloadBackup }, 'Download backup'),
       h('button', { class: 'btn small ghost', type: 'button', onclick: () => { showTab('assign'); $('#backup-card').scrollIntoView({ behavior: 'smooth' }); } }, 'Backup options')));
 }
 
-const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-
-function downloadBackup() {
-  const backup = {
-    type: 'draftwork-backup',
-    version: 1,
-    exported: new Date().toISOString(),
-    from: location.origin,
-    assignments: realAssignments().map((a) => ({ config: a.config, added: a.added })),
-    notes: allNotes(),
-  };
-  const date = new Date().toISOString().slice(0, 10);
-  download(new TextEncoder().encode(JSON.stringify(backup, null, 2)), `draftwork-backup-${date}.json`, 'application/json');
-  setBackupState({ backedUpRev: backupState().rev, at: backup.exported });
-  renderStorageNote();
-  toast(`Backup downloaded: ${backup.assignments.length} assignment${backup.assignments.length === 1 ? '' : 's'} and your check-in notes. Keep the file somewhere safe.`, 7000);
+function renderFolderBox() {
+  $('#f-folder-row').classList.toggle('hidden', !folderSupported() || !!folder);
+  const box = $('#folder-box');
+  box.innerHTML = '';
+  if (!folderSupported()) {
+    box.append(h('p', { class: 'small muted', style: 'margin:0' }, 'Automatic backup to a folder works in Chrome and Edge. In this browser, download a backup after making changes.'));
+    return;
+  }
+  if (!folder) {
+    box.append(h('div', { class: 'row' },
+      h('button', {
+        class: 'btn primary', type: 'button', onclick: connectFolder,
+        'data-tip': 'Choose a folder, such as one in your college OneDrive. Draftwork saves a backup there whenever anything changes, plus one copy per day. Choose the same folder on another computer to bring everything across.',
+      }, 'Back up automatically to a folder…')));
+    return;
+  }
+  box.append(h('div', { class: 'row folder-row' },
+    h('span', { class: `small ${folder.ok && !folderError ? '' : 'warn-text'}` }, folder.ok && !folderError ? '✓ Automatic backup to ' : 'Automatic backup paused: ', h('strong', null, folder.dir.name)),
+    h('span', { class: 'spacer' }),
+    !folder.ok && h('button', { class: 'btn small primary', type: 'button', onclick: reconnectFolder }, 'Allow'),
+    h('button', { class: 'btn small ghost', type: 'button', onclick: connectFolder, 'data-tip': 'Back up to a different folder. Anything already in that folder is merged in first.' }, 'Change folder'),
+    h('button', { class: 'btn small ghost', type: 'button', onclick: stopFolder, 'data-tip': 'Stop saving to this folder. The files already there are kept.' }, 'Stop')));
+  if (folderError) box.append(h('p', { class: 'small warn-text', style: 'margin:6px 0 0' }, folderError));
 }
 
-// Merges a backup into this browser. Nothing already here is removed.
-async function restoreBackup(text) {
-  let data;
+// Call straight from a click: the browser only shows its folder picker in response to one.
+async function connectFolder() {
+  let dir;
   try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error('That file isn’t a Draftwork backup.');
+    dir = await chooseFolder();
+  } catch (err) {
+    if (!err || err.name !== 'AbortError') toast('Couldn’t use that folder. Try another one.');
+    return false;
   }
-  if (!data || data.type !== 'draftwork-backup' || !Array.isArray(data.assignments)) throw new Error('That file isn’t a Draftwork backup.');
+  folder = { dir, ok: (await folderPermission(dir, true)) === 'granted' };
+  folderError = null;
+  await syncFolder({ announce: true });
+  if (folder.ok) toast(`Backing up automatically to “${dir.name}”.`);
+  return true;
+}
+
+async function reconnectFolder() {
+  if (!folder) return;
+  folder.ok = (await folderPermission(folder.dir, true)) === 'granted';
+  if (folder.ok) await syncFolder({ announce: true });
+  else renderStorageNote();
+}
+
+async function stopFolder() {
+  if (!confirm(`Stop backing up to “${folder.dir.name}”? The backups already there are kept.`)) return;
+  await forgetFolder();
+  folder = null;
+  folderError = null;
+  renderStorageNote();
+}
+
+// Merges what the folder holds (perhaps written on another computer), then saves ours there.
+async function syncFolder({ announce = false } = {}) {
+  if (!folder || !folder.ok) return renderStorageNote();
+  const text = await readLatest(folder.dir);
+  if (text) {
+    try {
+      const r = await mergeBackup(parseBackup(text));
+      if (announce && (r.added || r.notes || r.removedHere)) toast(`Merged the backup already in “${folder.dir.name}”: ${describeMerge(r)}.`, 8000);
+    } catch { /* not a backup we can read; ours replaces it */ }
+  }
+  await writeFolder();
+}
+
+let folderTimer = null;
+function scheduleFolderWrite() {
+  if (!folder || !folder.ok) return;
+  clearTimeout(folderTimer);
+  folderTimer = setTimeout(writeFolder, 800);
+}
+
+async function writeFolder() {
+  clearTimeout(folderTimer);
+  if (!folder || !folder.ok) return;
+  const b = fullBackup();
+  try {
+    await writeBackup(folder.dir, backupText(b));
+    folderError = null;
+    setBackupState({ backedUpRev: backupState().rev, at: b.exported });
+  } catch (err) {
+    if (err && err.name === 'NotAllowedError') folder.ok = false;
+    else folderError = 'Couldn’t save to the backup folder. Check that it still exists, or choose another.';
+  }
+  renderStorageNote();
+}
+
+function downloadBackup() {
+  const b = fullBackup();
+  download(new TextEncoder().encode(backupText(b)), `draftwork-backup-${b.exported.slice(0, 10)}.json`, 'application/json');
+  setBackupState({ backedUpRev: backupState().rev, at: b.exported });
+  renderStorageNote();
+  toast(`Backup downloaded: ${plural(b.assignments.length, 'assignment')} and your check-in notes. Keep the file somewhere safe.`, 7000);
+}
+
+function describeMerge(r) {
+  const parts = [`${plural(r.added, 'new assignment')}${r.already ? ` (${r.already} already here)` : ''}`];
+  if (r.notes) parts.push(`check-in notes for ${plural(r.notes, 'submission')}`);
+  if (r.removedHere) parts.push(`${plural(r.removedHere, 'assignment')} removed, as you did elsewhere`);
+  if (r.skipped) parts.push(`${r.skipped} couldn’t be read`);
+  return parts.join(', ');
+}
+
+// Merges a backup or shared file into this browser. Nothing here is lost: assignments are added,
+// notes are combined, and only assignments removed on purpose elsewhere are removed here too.
+async function mergeBackup(data) {
+  const wasEmpty = !realAssignments().length && !Object.keys(allNotes()).length;
+  let removedHere = 0;
+  if (data.removed && !data.shared) {
+    const removed = mergeRemoved(loadRemoved(), data.removed);
+    saveRemoved(removed);
+    const keep = library.filter((a) => a.demo || !isRemoved(removed, a.hash, a.added));
+    removedHere = library.length - keep.length;
+    if (removedHere) {
+      library = keep;
+      saveLibrary(library);
+    }
+  }
   let added = 0;
+  let already = 0;
   let skipped = 0;
   for (const a of data.assignments) {
     try {
       if (!a.config || a.config.v !== 1 || !a.config.nonce) throw new Error('bad');
-      const r = await addToLibrary(a.config, a.added ? { added: a.added } : {});
-      if (!r.existed) added++;
+      const r = await addToLibrary(a.config, { fromBackup: true, ...(a.added ? { added: a.added } : {}) });
+      if (r.existed) already++;
+      else if (!r.removed) added++;
     } catch {
       skipped++;
     }
   }
-  // Notes: keep whichever copy was updated most recently.
-  const mine = allNotes();
-  let notes = 0;
-  for (const [key, n] of Object.entries(data.notes || {})) {
-    if (!n || typeof n !== 'object') continue;
-    if (!mine[key] || String(n.updated || '') > String(mine[key].updated || '')) {
-      mine[key] = n;
-      notes++;
+  const { notes, changed } = mergeNotes(allNotes(), data.notes || {});
+  if (changed) {
+    try {
+      localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
+    } catch {
+      throw new Error('This browser’s storage is full, so the notes couldn’t be merged.');
     }
+    markChanged();
   }
-  try {
-    localStorage.setItem(NOTES_KEY, JSON.stringify(mine));
-  } catch {
-    throw new Error('This browser’s storage is full, so the notes couldn’t be restored.');
-  }
-  // What was just restored is, by definition, backed up.
-  setBackupState({ backedUpRev: backupState().rev, at: backupState().at || data.exported });
+  // Opening a backup in an empty browser leaves nothing that isn't backed up.
+  if (wasEmpty && !data.shared) setBackupState({ backedUpRev: backupState().rev, at: backupState().at || data.exported });
   renderLibrary();
   renderStorageNote();
-  if (loaded.length) reanalyze();
-  const total = data.assignments.length;
-  toast(`Restored from backup: ${added} new assignment${added === 1 ? '' : 's'} (${total - added - skipped} already here)` +
-    `${notes ? `, check-in notes for ${notes} submission${notes === 1 ? '' : 's'}` : ''}.${skipped ? ` ${skipped} couldn’t be read.` : ''}`, 7000);
+  if (loaded.length && (added || removedHere)) await reanalyze();
+  else if (loaded.length && changed) renderGroups();
+  return { added, already, skipped, notes: changed, removedHere, shared: !!data.shared };
+}
+
+async function openBackupFile(text) {
+  const r = await mergeBackup(parseBackup(text));
+  toast(`${r.shared ? 'Merged the shared file' : 'Merged the backup'}: ${describeMerge(r)}.`, 8000);
+}
+
+// A file for a co-teacher or TA: chosen assignments, and optionally the notes on their submissions.
+function openShare(ev) {
+  const list = realAssignments();
+  if (!list.length) {
+    toast('No assignments to share yet.');
+    return;
+  }
+  const boxes = list.map((a) => h('input', { type: 'checkbox', checked: true, value: a.hash, 'aria-label': a.config.title }));
+  const withNotes = h('input', { type: 'checkbox', id: 'share-notes' });
+  const body = h('div', { class: 'share-pop stack' },
+    h('strong', null, 'Share with a colleague'),
+    h('div', { class: 'small muted' }, 'They open the file under Assignments → Open backup or shared file, and it’s merged with what they have.'),
+    h('div', { class: 'stack share-list' }, list.map((a, k) => h('label', { class: 'check' }, boxes[k], h('span', null, a.config.title)))),
+    h('label', { class: 'check', 'data-tip': 'Your answers, outcomes and flag reviews for these assignments’ submissions. Include them when you’re reviewing the same students together.' },
+      withNotes, h('span', null, 'Include my check-in notes')),
+    h('div', { class: 'row' }, h('button', {
+      class: 'btn small primary', type: 'button',
+      onclick: () => {
+        const hashes = new Set(boxes.filter((b) => b.checked).map((b) => b.value));
+        if (!hashes.size) {
+          toast('Choose at least one assignment.');
+          return;
+        }
+        const chosen = list.filter((a) => hashes.has(a.hash));
+        const b = makeBackup({ assignments: chosen, notes: withNotes.checked ? notesFor(allNotes(), hashes) : {}, shared: true, from: location.origin });
+        const slug = chosen[0].config.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'assignment';
+        download(new TextEncoder().encode(backupText(b)), `draftwork-shared-${slug}${chosen.length > 1 ? `-and-${chosen.length - 1}-more` : ''}.json`, 'application/json');
+        closePopover();
+        toast(`Saved ${plural(chosen.length, 'assignment')}${withNotes.checked ? ' with your notes' : ''} to share. Send the file to your colleague.`, 7000);
+      },
+    }, 'Download file')));
+  popover(ev.currentTarget, body, { align: 'left' });
 }
 
 $('#backup-btn').addEventListener('click', downloadBackup);
+$('#share-btn').addEventListener('click', openShare);
 $('#restore-input').addEventListener('change', async (ev) => {
   const f = ev.target.files[0];
   ev.target.value = '';
   if (!f) return;
   try {
-    await restoreBackup(await f.text());
+    await openBackupFile(await f.text());
   } catch (err) {
     toast(err.message, 6000);
   }
 });
+
 
 function renderLibrary() {
   const box = $('#assign-list');
@@ -215,6 +398,7 @@ function renderLibrary() {
           onclick: () => {
             if (!confirm(`Remove "${c.title}" from this browser? You can import its code again later.`)) return;
             library = library.filter((x) => x !== a);
+            if (!a.demo) saveRemoved({ ...loadRemoved(), [a.hash]: new Date().toISOString() });
             saveLibrary(library);
             renderLibrary();
           },
@@ -231,6 +415,8 @@ for (const [k, v] of Object.entries(DEFAULT_THRESHOLDS)) {
 
 $('#new-form').addEventListener('submit', async (ev) => {
   ev.preventDefault();
+  // Ask for the backup folder first, while the click still counts for the browser's picker.
+  const picking = !folder && folderSupported() && $('#f-folder').checked ? connectFolder() : null;
   const thresholds = {};
   for (const [k, v] of Object.entries(DEFAULT_THRESHOLDS)) {
     const val = Number($(`#th-${k}`).value);
@@ -260,12 +446,15 @@ $('#new-form').addEventListener('submit', async (ev) => {
     aiDisclosure: $('#f-ai').checked,
     spelling: $('#f-spelling').checked,
   });
+  if (picking) await picking;
   await addToLibrary(config);
   renderLibrary();
   $('#new-form').reset();
   for (const [k, v] of Object.entries(DEFAULT_THRESHOLDS)) $(`#th-${k}`).value = v;
   presetDemo();
-  toast(`Created "${config.title}". Use Copy link to share it with students, and Download backup to keep it safe.`, 7000);
+  toast(folder && folder.ok
+    ? `Created "${config.title}" and backed it up to “${folder.dir.name}”. Use Copy link to share it with students.`
+    : `Created "${config.title}". Use Copy link to share it with students, and Download backup to keep it safe.`, 7000);
   reanalyze();
 });
 
@@ -360,14 +549,41 @@ function checkinStatus(item, F) {
 }
 
 let filter = 'all';
+// [label, test, shown as a chip]. The level filters are reached from each class's summary bar.
 const FILTERS = {
-  all: ['All', () => true],
-  flagged: ['Flagged', (F) => F.flags.length > 0],
-  major: ['Major flags', (F) => F.level === 'major'],
-  integrity: ['Altered files', (F) => F.integrity.some((c) => c.status === 'fail')],
-  todo: ['Not checked in', (F, s) => !s.any],
-  follow: ['Follow-up', (F, s) => s.follow > 0],
+  all: ['All', () => true, true],
+  flagged: ['Flagged', (F) => F.flags.length > 0, true],
+  major: ['Major flags', (F) => F.level === 'major', true],
+  minor: ['Minor flags', (F) => F.level === 'minor', false],
+  none: ['No flags', (F) => F.level === 'none', false],
+  integrity: ['Altered files', (F) => F.integrity.some((c) => c.status === 'fail'), true],
+  todo: ['Not checked in', (F, s) => !s.any, true],
+  follow: ['Follow-up', (F, s) => s.follow > 0, true],
 };
+
+// Sort order for each class, remembered in this browser.
+const LEVEL_RANK = { major: 0, minor: 1, none: 2 };
+const byName = (a, b) => normLabel(a.F.header.student_label).localeCompare(normLabel(b.F.header.student_label));
+const seriousness = (F) => F.flags.filter((f) => f.severity === 'major').length * 10 + F.flags.length;
+const byLevel = (a, b) => LEVEL_RANK[a.F.level] - LEVEL_RANK[b.F.level] || seriousness(b.F) - seriousness(a.F) || byName(a, b);
+const SORTS = {
+  name: ['Name', byName],
+  level: ['Most serious first', byLevel],
+  checkin: ['Not checked in first', (a, b) => Number(a.s.any) - Number(b.s.any) || byLevel(a, b)],
+};
+let sortBy = 'name';
+try {
+  if (SORTS[localStorage.getItem('draftwork.sort')]) sortBy = localStorage.getItem('draftwork.sort');
+} catch { /* storage unavailable */ }
+
+// One class's submissions, finalized, in display order. With visibleOnly, only those the filter shows.
+function classRows(items, visibleOnly = true) {
+  const rows = items.map((item) => {
+    const F = finalized(item);
+    return { item, F, s: checkinStatus(item, F) };
+  }).sort(SORTS[sortBy][1]);
+  return visibleOnly ? rows.filter((x) => FILTERS[filter][1](x.F, x.s)) : rows;
+}
 
 async function addFiles(entries) {
   const status = $('#load-status');
@@ -391,7 +607,7 @@ async function addFiles(entries) {
     status.textContent = `Checking ${k + 1} of ${files.length}…`;
     try {
       if (/\.json$/i.test(name) && new TextDecoder().decode(bytes.subarray(0, 200)).includes('draftwork-backup')) {
-        await restoreBackup(new TextDecoder().decode(bytes));
+        await openBackupFile(new TextDecoder().decode(bytes));
         continue;
       }
       const file = await parseFile(bytes);
@@ -409,6 +625,7 @@ async function addFiles(entries) {
   if (errors.length) toast(errors.slice(0, 3).join(' · '), 8000);
   $('#clear-files').classList.toggle('hidden', !loaded.length);
   $('#export-csv').classList.toggle('hidden', !loaded.length);
+  finalCache.clear();
   renderGroups();
 }
 
@@ -416,15 +633,22 @@ async function addFiles(entries) {
 async function reanalyze() {
   if (!loaded.length) return;
   for (const item of loaded) item.A = await analyzeFile(item.A.file, { knownConfigHashes: knownHashes() });
+  finalCache.clear();
   renderGroups();
 }
 
+// Class comparisons make finalizing a whole class slow for large classes, so results are kept
+// until the set of open files (or their analyses) changes.
+const finalCache = new Map();
 function finalized(item) {
   const A = item.A;
+  if (finalCache.has(item) && finalCache.get(item).A === A) return finalCache.get(item).F;
   const cohort = loaded.filter((x) => x.A.cfgHash === A.cfgHash).map((x) => x.A);
   const priors = loaded.filter((x) => x.A !== A && x.A.cfgHash !== A.cfgHash && normLabel(x.A.header.student_label) === normLabel(A.header.student_label))
     .map((x) => x.A);
-  return finalize(A, { cohort, priors });
+  const F = finalize(A, { cohort, priors });
+  finalCache.set(item, { A, F });
+  return F;
 }
 
 function groupsOf() {
@@ -442,22 +666,33 @@ function renderGroups() {
   box.innerHTML = '';
   const known = knownHashes();
   if (loaded.length) {
-    box.append(h('div', { class: 'row filters', role: 'group', 'aria-label': 'Show' },
-      h('span', { class: 'small muted' }, 'Show:'),
-      Object.entries(FILTERS).map(([k, [label]]) => h('button', {
-        class: 'chip', type: 'button', 'aria-pressed': String(filter === k),
-        onclick: () => {
-          filter = k;
-          renderGroups();
-        },
-      }, label))));
+    const sortSel = h('select', { 'aria-label': 'Sort submissions', 'data-tip': 'Order of the submissions in each class. Previous and Next follow it.' },
+      Object.entries(SORTS).map(([k, [label]]) => h('option', { value: k, selected: sortBy === k }, label)));
+    sortSel.addEventListener('change', () => {
+      sortBy = sortSel.value;
+      try {
+        localStorage.setItem('draftwork.sort', sortBy);
+      } catch { /* storage unavailable */ }
+      renderGroups();
+    });
+    box.append(h('div', { class: 'row filters' },
+      h('div', { class: 'row', role: 'group', 'aria-label': 'Show' },
+        h('span', { class: 'small muted' }, 'Show:'),
+        Object.entries(FILTERS).filter(([k, [, , chip]]) => chip || filter === k).map(([k, [label]]) => h('button', {
+          class: 'chip', type: 'button', 'aria-pressed': String(filter === k),
+          onclick: () => {
+            filter = k;
+            renderGroups();
+          },
+        }, label))),
+      h('span', { class: 'spacer' }),
+      h('label', { class: 'row sort-row' }, h('span', { class: 'small muted' }, 'Sort:'), sortSel)));
   }
   for (const [hash, items] of groupsOf()) {
     const cfg = items[0].A.config;
     const min = items[0].A.T.min_class_size;
-    const shown = items.map((item) => ({ item, F: finalized(item) }))
-      .map((x) => ({ ...x, s: checkinStatus(x.item, x.F) }))
-      .filter((x) => FILTERS[filter][1](x.F, x.s));
+    const all = classRows(items, false);
+    const shown = all.filter((x) => FILTERS[filter][1](x.F, x.s));
     const rows = shown.map(({ item, F, s }) => {
       const fails = F.integrity.filter((c) => c.status === 'fail').length;
       const warns = F.integrity.filter((c) => c.status !== 'pass' && c.status !== 'fail').length;
@@ -498,8 +733,9 @@ function renderGroups() {
           h('div', { class: 'small muted' },
             `${items.length} submission${items.length === 1 ? '' : 's'}`,
             !known.has(hash) && h('span', { class: 'warn-text', 'data-tip': 'Import this assignment’s code under Assignments so the files can be checked against it.' }, ' · not in your assignments'),
-            h('span', { 'data-tip': `The “too fast” and “machine-regular rhythm” flags compare students with each other, so they need at least ${min} submissions.` },
+            h('span', { 'data-tip': `The “written unusually quickly” and “unnaturally even typing” flags compare students with each other, so they need at least ${min} submissions.` },
               classOn ? ' · class comparisons on' : ` · class comparisons need ${min}`)))),
+      classSummary(all),
       h('div', { class: 'table-wrap' }, h('table', null,
         h('thead', null, h('tr', null,
           h('th', null, 'Student'), h('th', null, 'Words'),
@@ -513,6 +749,45 @@ function renderGroups() {
   }
 }
 
+// Red, amber and green at a glance, each a shortcut to those submissions, and check-in progress.
+function classSummary(all) {
+  const count = (lvl) => all.filter((x) => x.F.level === lvl).length;
+  const n = { major: count('major'), minor: count('minor'), none: count('none') };
+  const altered = all.filter((x) => FILTERS.integrity[1](x.F, x.s)).length;
+  const flagged = all.filter((x) => x.F.flags.length);
+  const seen = flagged.filter((x) => x.s.any).length;
+  const follow = all.filter((x) => x.s.follow > 0).length;
+  const pick = (k) => () => {
+    filter = filter === k ? 'all' : k;
+    renderGroups();
+  };
+  const order = ['major', 'minor', 'none'];
+  return h('div', { class: 'class-summary' },
+    h('div', { class: 'level-bar', role: 'img', 'aria-label': `${n.major} with major flags, ${n.minor} with minor flags, ${n.none} with no flags` },
+      order.filter((k) => n[k]).map((k) => h('button', {
+        class: `seg ${LEVELS[k].cls}`, type: 'button', style: `flex-grow:${n[k]}`, tabindex: '-1',
+        'data-tip': `${n[k]} ${LEVELS[k].label.toLowerCase()}: show them`, onclick: pick(k),
+      }))),
+    h('div', { class: 'row summary-chips' },
+      order.map((k) => h('button', {
+        class: `chip level-chip ${LEVELS[k].cls}`, type: 'button', 'aria-pressed': String(filter === k),
+        'data-tip': `${LEVELS[k].tip} Click to show only these; click again for all.`, onclick: pick(k),
+      }, h('span', { class: `dot ${LEVELS[k].cls}` }), `${n[k]} ${LEVELS[k].label.toLowerCase()}`)),
+      altered ? h('button', { class: 'chip', type: 'button', 'aria-pressed': String(filter === 'integrity'), onclick: pick('integrity') }, `${altered} altered file${altered === 1 ? '' : 's'}`) : null,
+      h('span', { class: 'spacer' }),
+      h('span', { class: 'small muted', 'data-tip': 'Flagged submissions you’ve recorded something for under “Questions to ask”' },
+        flagged.length ? `Checked in with ${seen} of ${flagged.length} flagged` : 'Nothing flagged',
+        follow ? h('span', { class: 'warn-text' }, ` · ${follow} need follow-up`) : null)));
+}
+
+// Previous and Next follow the list as shown: the current sort, and the filter when it includes
+// the open submission.
+function navOrder(item) {
+  const items = groupsOf().get(item.A.cfgHash);
+  const visible = classRows(items, true).map((x) => x.item);
+  return visible.includes(item) ? visible : classRows(items, false).map((x) => x.item);
+}
+
 let currentTab = 'overview';
 function openDetail(item, tab = currentTab) {
   current = item;
@@ -524,17 +799,19 @@ function openDetail(item, tab = currentTab) {
     notes: { get: () => getNotes(item.key), set: (n) => setNotes(item.key, n) },
     fileInfo: { fingerprint: item.fingerprint, lms: item.lms },
   });
-  const group = groupsOf().get(item.A.cfgHash);
-  const k = group.indexOf(item);
+  const order = navOrder(item);
+  const k = order.indexOf(item);
   $('#prev').disabled = k <= 0;
-  $('#next').disabled = k >= group.length - 1;
+  $('#next').disabled = k >= order.length - 1;
+  $('#prev').dataset.tip = `Previous submission (${SORTS[sortBy][0].toLowerCase()}${filter !== 'all' ? `, ${FILTERS[filter][0].toLowerCase()}` : ''})`;
+  $('#next').dataset.tip = `Next submission (${SORTS[sortBy][0].toLowerCase()}${filter !== 'all' ? `, ${FILTERS[filter][0].toLowerCase()}` : ''})`;
   window.scrollTo(0, 0);
 }
 
 function step(d) {
-  const group = groupsOf().get(current.A.cfgHash);
-  const k = group.indexOf(current) + d;
-  if (group[k]) openDetail(group[k]);
+  const order = navOrder(current);
+  const k = order.indexOf(current) + d;
+  if (order[k]) openDetail(order[k]);
 }
 $('#prev').addEventListener('click', () => step(-1));
 $('#next').addEventListener('click', () => step(1));
@@ -599,6 +876,7 @@ $('#export-csv').addEventListener('click', (e) => {
 
 $('#clear-files').addEventListener('click', () => {
   loaded = [];
+  finalCache.clear();
   renderGroups();
   $('#load-status').textContent = '';
   $('#clear-files').classList.add('hidden');
@@ -658,3 +936,14 @@ drop.addEventListener('drop', async (ev) => {
 
 renderLibrary();
 renderStorageNote();
+
+// Pick up the backup folder chosen on an earlier visit. If the browser still allows writing to it,
+// merge in anything saved there from another computer.
+(async () => {
+  if (!folderSupported()) return;
+  const dir = await savedFolder();
+  if (!dir) return;
+  folder = { dir, ok: (await folderPermission(dir)) === 'granted' };
+  if (folder.ok) await syncFolder({ announce: true });
+  else renderStorageNote();
+})();

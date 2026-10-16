@@ -111,7 +111,7 @@ class Page {
   async waitFor(expr, ms = 15000) {
     const end = Date.now() + ms;
     while (Date.now() < end) {
-      if (await this.eval(`!!(${expr})`).catch(() => false)) return;
+      if (await this.eval(`(async () => !!(await (${expr})))()`).catch(() => false)) return;
       await sleep(100);
     }
     throw new Error(`timed out waiting for ${expr}`);
@@ -450,7 +450,7 @@ try {
     const p = await Page.open(cdpPort);
     await p.send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: dl });
     await p.goto(`${base}/instructor.html`);
-    await p.eval(`document.querySelector('#tab-assign').click(); document.querySelector('#f-title').value = 'Backed-up essay'; document.querySelector('#new-form').requestSubmit(); true`);
+    await p.eval(`document.querySelector('#tab-assign').click(); document.querySelector('#f-title').value = 'Backed-up essay'; document.querySelector('#f-folder').checked = false; document.querySelector('#new-form').requestSubmit(); true`);
     await p.waitFor('!document.querySelector("#storage-note").classList.contains("hidden")');
     const warn = await p.eval('document.querySelector("#storage-note").textContent');
     assert(/only in this browser/.test(warn), warn);
@@ -472,6 +472,52 @@ try {
     await p.waitFor('document.querySelector("#assign-list").textContent.includes("Backed-up essay")');
     await p.close(cdpPort);
     await rm(dl, { recursive: true, force: true }).catch(() => {});
+  });
+
+  await check('instructor: automatic backup to a folder, merged across computers', async () => {
+    const p = await Page.open(cdpPort);
+    await p.goto(`${base}/instructor.html`);
+    await p.eval('localStorage.clear(); true');
+    // A headless browser can't show the folder picker, so hand Draftwork a folder in the page's
+    // private file storage instead. Everything else is the real code path.
+    const stub = `window.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('backups', { create: true });`;
+    const readBackup = `(async () => { const d = await (await navigator.storage.getDirectory()).getDirectoryHandle('backups', { create: true }); try { return JSON.parse(await (await (await d.getFileHandle('draftwork-backup.json')).getFile()).text()); } catch { return null; } })()`;
+    await p.eval(`(async () => { const root = await navigator.storage.getDirectory(); await root.removeEntry('backups', { recursive: true }).catch(() => {}); indexedDB.deleteDatabase('draftwork-instructor'); return true; })()`);
+    await p.goto(`${base}/instructor.html`);
+    await p.eval(stub + ' true');
+    await p.eval(`document.querySelector('#tab-assign').click(); true`);
+    assert(await p.eval(`!document.querySelector('#f-folder-row').classList.contains('hidden') && document.querySelector('#f-folder').checked`), 'folder option not offered by default');
+    await p.eval(`document.querySelector('#f-title').value = 'Folder essay'; document.querySelector('#new-form').requestSubmit(); true`);
+    await p.waitFor(`(${readBackup}).then((b) => b && b.assignments.some((a) => a.config.title === 'Folder essay'))`, 10000);
+    await p.waitFor('/Backing up automatically/.test(document.querySelector("#backup-status").textContent)', 5000);
+    assert(await p.eval('document.querySelector("#storage-note").classList.contains("hidden")'), 'still nagging to back up');
+
+    // "Another computer" saved a backup to the same folder with another assignment and a note.
+    const other = await p.eval(`(async () => {
+      const b = await ${readBackup};
+      const cfg = { ...b.assignments[0].config, title: 'From my office', nonce: 'feedfacefeedfacefeedfacefeedface' };
+      b.assignments.push({ config: cfg, added: new Date().toISOString() });
+      b.notes['abc:someone'] = { prompts: { 1: { answer: 'Office answer', outcome: 'ok' } }, flags: {}, summary: '', updated: new Date().toISOString() };
+      const d = await (await navigator.storage.getDirectory()).getDirectoryHandle('backups');
+      const w = await (await d.getFileHandle('draftwork-backup.json')).createWritable();
+      await w.write(JSON.stringify(b)); await w.close();
+      return true; })()`);
+    assert(other, 'could not write the other computer’s backup');
+    // Next visit: the folder is remembered, its backup is merged in, and the result written back.
+    await p.goto(`${base}/instructor.html`);
+    await p.eval(`document.querySelector('#tab-assign').click(); true`);
+    await p.waitFor('document.querySelector("#assign-list").textContent.includes("From my office")', 10000);
+    assert((await p.eval('document.querySelector("#assign-list").textContent')).includes('Folder essay'), 'lost the local assignment');
+    assert(await p.eval(`JSON.parse(localStorage.getItem('draftwork.notes'))['abc:someone'].prompts[1].answer === 'Office answer'`), 'notes not merged');
+
+    // Removing an assignment is saved too, so it doesn't come back from the folder.
+    await p.eval(`window.confirm = () => true; [...document.querySelectorAll('#assign-list .assign-row')].find((r) => r.textContent.includes('From my office')).querySelector('button:last-of-type').click(); true`);
+    await p.waitFor(`(${readBackup}).then((b) => b && !b.assignments.some((a) => a.config.title === 'From my office') && Object.keys(b.removed || {}).length === 1)`, 10000);
+    await p.goto(`${base}/instructor.html`);
+    await p.eval(`document.querySelector('#tab-assign').click(); true`);
+    await sleep(1500);
+    assert(!(await p.eval('document.querySelector("#assign-list").textContent')).includes('From my office'), 'a removed assignment came back');
+    await p.close(cdpPort);
   });
 
   // ---------- the static demo site (no server-side relay at all) ----------
@@ -509,6 +555,24 @@ try {
     await demo.waitFor('document.querySelectorAll("tr.clickable").length > 15', 30000);
     const notice = await demo.eval('!document.querySelector("#no-relay-note").classList.contains("hidden")');
     assert(notice, 'no-relay notice not shown');
+    // Large classes: a red/amber/green summary that filters, and sorting by seriousness.
+    const CITIES = `[...document.querySelectorAll('#groups .card')].find((c) => c.querySelector('h2').textContent.includes('Cities'))`;
+    const summary = await demo.eval(`${CITIES}.querySelector('.class-summary').textContent`);
+    assert(/\d+ major flags/.test(summary) && /\d+ no flags/.test(summary) && /Checked in with 0 of \d+ flagged/.test(summary), summary);
+    await demo.eval(`[...${CITIES}.querySelector('.class-summary').querySelectorAll('.level-chip')][0].click(); true`);
+    const levels = await demo.eval(`[...${CITIES}.querySelectorAll('tbody tr')].map((r) => r.className)`);
+    assert(levels.length > 3 && levels.every((c) => /level-major/.test(c)), `filter by major: ${levels}`);
+    await demo.eval(`(() => { ${CITIES}.querySelector('.class-summary').querySelector('.level-chip').click(); const s = document.querySelector('.sort-row select'); s.value = 'level'; s.dispatchEvent(new Event('change')); return true; })()`);
+    const sorted = await demo.eval(`[...${CITIES}.querySelectorAll('tbody tr')].map((r) => r.className.match(/level-(\\w+)/)[1])`);
+    const rank = { major: 0, minor: 1, none: 2 };
+    assert(sorted.length > 20 && sorted.every((l, k) => k === 0 || rank[sorted[k - 1]] <= rank[l]), `not sorted by level: ${sorted}`);
+    // Next follows the sorted order.
+    await demo.eval(`${CITIES}.querySelector('tbody tr').click(); true`);
+    await demo.waitFor('!document.querySelector("#review-detail").classList.contains("hidden")');
+    await demo.eval(`document.querySelector('#next').click(); true`);
+    const second = await demo.eval(`document.querySelector('#report h1').textContent`);
+    const expected = await demo.eval(`(() => { document.querySelector('#back').click(); return [...${CITIES}.querySelectorAll('tbody tr')][1].querySelector('strong').textContent; })()`);
+    assert(second === expected, `Next did not follow the sort order: ${second} vs ${expected}`);
     await demo.close(cdpPort);
   });
 

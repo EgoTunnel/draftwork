@@ -99,17 +99,20 @@
               </div>
             </div>
           </details>
+          <label class="check hidden" id="f-folder-row" data-tip="Your assignments and check-in notes are saved as a file in a folder you choose, such as your college OneDrive, every time they change. Pick the same folder on another computer to bring everything across."><input type="checkbox" id="f-folder" checked> <span>Back up automatically to a folder I choose <span class="hint">(recommended)</span></span></label>
           <div><button class="btn primary" type="submit">Create</button></div>
         </form>
         <div class="stack">
           <div class="card" id="assign-list"></div>
           <div class="card stack" id="backup-card">
-            <h2>Back up &amp; restore</h2>
+            <h2>Back up, share &amp; merge</h2>
             <p class="small" id="backup-status" style="margin:0"></p>
+            <div class="folder-box" id="folder-box"></div>
             <div class="row">
-              <button class="btn primary" id="backup-btn" type="button" data-tip="Download one file with all your assignments and check-in notes. Keep it somewhere safe, like your course folder.">Download backup</button>
-              <label class="btn" for="restore-input" data-tip="Load a backup file, on this or another computer. Nothing you already have is removed.">Restore from backup…</label>
+              <button class="btn" id="backup-btn" type="button" data-tip="Download one file with all your assignments and check-in notes. Keep it somewhere safe, like your course folder.">Download backup</button>
+              <label class="btn" for="restore-input" data-tip="Open a backup, or a file a colleague shared, on this or another computer. It’s merged with what you have: nothing here is removed, and notes are combined.">Open backup or shared file…</label>
               <input type="file" id="restore-input" accept=".json,application/json" class="hidden">
+              <button class="btn" id="share-btn" type="button" data-tip="Make a file with some of your assignments, and optionally your check-in notes, for a co-teacher or TA. They open it here to merge it with theirs.">Share with a colleague…</button>
             </div>
             <details>
               <summary class="small">Add a single assignment from its code or link</summary>

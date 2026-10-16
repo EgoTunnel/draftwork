@@ -422,6 +422,29 @@ tr.level-none td:first-child { box-shadow: inset 4px 0 var(--ok); }
 tr.level-minor td:first-child { box-shadow: inset 4px 0 var(--warn); }
 tr.level-major td:first-child { box-shadow: inset 4px 0 var(--bad); }
 .pill.level { font-weight: 700; border: 1px solid currentColor; }
+
+/* Class summary: red, amber and green at a glance */
+.class-summary { margin: 4px 0 14px; }
+.level-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; gap: 2px; }
+.level-bar .seg { border: 0; padding: 0; min-width: 6px; cursor: pointer; }
+.level-bar .seg.bad { background: var(--bad); }
+.level-bar .seg.warn { background: var(--warn); }
+.level-bar .seg.ok { background: var(--ok); }
+.level-bar .seg:hover { filter: brightness(1.1); }
+.summary-chips { margin-top: 8px; gap: 6px; }
+.level-chip { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.dot.bad { background: var(--bad); }
+.dot.warn { background: var(--warn); }
+.dot.ok { background: var(--ok); }
+.sort-row { gap: 6px; margin: 0; }
+.sort-row select { width: auto; }
+
+/* Backups and sharing */
+.folder-box:empty { display: none; }
+.folder-row { gap: 6px; }
+.share-pop { padding: 12px; max-width: 340px; gap: 10px; }
+.share-list { max-height: 220px; overflow: auto; gap: 4px; }
 .pill.soft { font-weight: 500; }
 tr.clickable:hover td { background: var(--surface-2); }
 td.row-actions { text-align: right; width: 1%; }

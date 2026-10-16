@@ -62,9 +62,13 @@ No dependencies; Node 20+.
 **Instructor viewer** (`instructor.html`)
 
 - **Assignments:** title, paste policy, sources panel, word limits, due date, AI disclosure, flag thresholds, timestamp services, and "test assignment" for demo timestamps.
-- **Backup & restore:** assignments and check-in notes live in the browser, so one file backs up everything and restores it on any computer. A banner warns whenever something isn't backed up, and the page asks the browser not to clear its storage automatically.
+- **Backup, sharing and merging:**
+  - Assignments and check-in notes live in the browser. In Chrome and Edge they're backed up **automatically to a folder the instructor chooses** (offered when creating an assignment). Pointing a OneDrive folder at it keeps them safe and carries them to other computers. Other browsers download a backup file.
+  - **Merging:** opening a backup merges it. Notes on the same student are combined field by field, and assignments removed on purpose stay removed.
+  - **Share with a colleague:** a file with chosen assignments and, optionally, notes.
+  - A banner warns whenever something isn't backed up.
 - **Opening submissions:** single files, or the **zip your LMS produces** (Canvas, Moodle, Blackboard, Brightspace). The name the LMS gives each student is shown, with a warning when it doesn't match the file.
-- **Submission list:** colour-coded (green: no flags; amber: minor flags; red: a major flag or three or more), with filters (flagged, major flags, altered files, not checked in, follow-up) and check-in progress. The File column says only whether the file is an unaltered Draftwork record.
+- **Submission list:** a summary bar per assignment (red, amber and green counts that filter when clicked, and check-in progress), sorting by name, seriousness or check-in, and Previous/Next that follow the sort; colour-coded (green: no flags; amber: minor flags; red: a major flag or three or more), with filters (flagged, major flags, altered files, not checked in, follow-up) and check-in progress. The File column says only whether the file is an unaltered Draftwork record.
 - **Overview tab:** integrity checks, flags (including **shared passages** between students), the writing process, questions to ask, and a replay.
 - **Check-in notes:** record each answer and outcome, mark flags as benign or a concern, and **Print summary** to print or save a one-page record.
 - **Document tab / Read:** the submitted document as formatted, to copy, download or print.

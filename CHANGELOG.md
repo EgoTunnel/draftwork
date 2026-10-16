@@ -24,6 +24,14 @@ Draftwork follows [semantic versioning](https://semver.org/). The file format is
   - the most productive return session.
   Five appear as before; up to four more are under **More questions**.
 
+- **Large classes:**
+  - each assignment shows a summary bar of red, amber and green counts (click to filter), altered files, and check-in progress;
+  - sort by name, most serious first, or not checked in first;
+  - Previous and Next follow the sort and filter;
+  - class analysis is cached, so the list stays quick.
+- **Automatic backup to a folder** (Chrome and Edge): offered when creating an assignment, and saved whenever anything changes, with one copy per day. Choosing the same folder (for example in OneDrive) on another computer merges everything across.
+- **Better merging:** opening a backup combines notes on the same student field by field instead of keeping only the newest copy, and assignments you removed stay removed.
+- **Share with a colleague:** a file with chosen assignments and, optionally, your check-in notes, which merges into theirs.
 - **Colour-coded submissions:** green for no flags, amber for one or two minor flags, red for a major flag or three or more. Each flag is marked major or minor, and there's a new "Major flags" filter.
 - **"File" instead of "Integrity: Passed":** the list now says "Unaltered" or "Altered", and the report's "File integrity" section explains that these checks confirm only that the file is an unaltered Draftwork record, not who wrote it or how.
 - **Sample class:** four students who misuse AI in different ways (retyping a chatbot answer from a phone, typing up a chatbot draft from another window, an "AI humaniser" auto-typing tool, and laundering a chatbot essay through the sources panel), each with an AI-use disclosure to compare against the record.
