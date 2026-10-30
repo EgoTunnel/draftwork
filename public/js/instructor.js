@@ -577,6 +577,8 @@ function showTab(name) {
 }
 $('#tab-review').addEventListener('click', () => showTab('review'));
 $('#tab-assign').addEventListener('click', () => showTab('assign'));
+// instructor.html#assignments (the front page's "Open assignments") starts on the Assignments tab.
+if (location.hash === '#assignments') showTab('assign');
 
 // ---------- submissions ----------
 

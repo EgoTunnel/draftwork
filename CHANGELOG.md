@@ -19,6 +19,7 @@ Draftwork follows [semantic versioning](https://semver.org/). The file format is
 - **A simpler Preview:** a short check first (length, AI disclosure, due date, any flags to add a note to), with the instructor's full view one click away.
 
 ### For instructors
+- **A front page for instructors:** Write ("Try the student editor", a practice assignment) and Review ("Open assignments", which goes straight to the Assignments tab, and "Sample class"). A short note tells any student who lands there to use the assignment link from their course site.
 - **Instructions for students:** each assignment has a ready-to-paste text for the course site with the link and the steps, in the same words students see in Draftwork.
 - **Course dropbox link** (optional) on a new assignment: students get a button to open it after saving, and it's in the instructions.
 - **Wrong files spotted:** when a course-site zip contains a Word document (or anything else) instead of a `.draftwork` file, the list names those students, so they aren't silently missing.
