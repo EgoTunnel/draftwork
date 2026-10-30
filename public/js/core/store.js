@@ -33,20 +33,21 @@ export const keysWith = (prefix) => tx('readonly', (s) => s.getAllKeys(IDBKeyRan
 const HISTORY_KEEP = 12;
 const histPrefix = (cfgHash) => `hist:${cfgHash}:`;
 
-export async function addVersion(cfgHash, file, words) {
-  const key = `${histPrefix(cfgHash)}${String(Date.now()).padStart(15, '0')}`;
+// `keep` marks a version that must not be trimmed: another person's draft, set aside on a shared computer.
+export async function addVersion(cfgHash, file, words, { keep = false } = {}) {
+  const key = `${histPrefix(cfgHash)}${String(Date.now()).padStart(15, '0')}${keep ? ':keep' : ''}`;
   await putDraft(key, { file, words, savedAt: Date.now() });
-  const keys = await keysWith(histPrefix(cfgHash));
+  const keys = (await keysWith(histPrefix(cfgHash))).filter((k) => !k.endsWith(':keep'));
   for (const old of keys.slice(0, Math.max(0, keys.length - HISTORY_KEEP))) await deleteDraft(old);
 }
 
-// Newest first: [{ key, savedAt, words, events }]
+// Newest first: [{ key, savedAt, words, events, label }]
 export async function listVersions(cfgHash) {
   const keys = await keysWith(histPrefix(cfgHash));
   const out = [];
   for (const key of keys.reverse()) {
     const v = await getDraft(key);
-    if (v && v.file) out.push({ key, savedAt: v.savedAt, words: v.words, events: v.file.events.length });
+    if (v && v.file) out.push({ key, savedAt: v.savedAt, words: v.words, events: v.file.events.length, label: v.file.header.student_label });
   }
   return out;
 }

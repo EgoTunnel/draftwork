@@ -5,6 +5,9 @@ Draftwork follows [semantic versioning](https://semver.org/). The file format is
 ## Unreleased
 
 ### For students
+- **Shared computers:** when the draft on the start page is someone else's, "Start my own draft" sets it aside under Earlier versions (with their name, and never trimmed) instead of the only choices being to continue or discard it.
+- **Private windows:** the start form says to use a normal window, since closing a private one deletes the draft. Draftwork also asks the browser to keep drafts when the disk runs low.
+- "Needs an internet connection while you write" became "Start online. If the connection drops while you write, keep writing", matching the Offline · keep writing status.
 - **Footnotes:** Insert → Footnote, or Ctrl+Alt+F. They're numbered automatically, typed in a Footnotes section at the bottom of the page, and exported as real Word footnotes.
 - **Font and size for selected text** from the toolbar, as in Word. The document's default moved to Format → Default font.
 - **Header and page numbers** (Format): header text such as your last name, with page numbers top right (MLA), bottom centre, or none. Shown on the page, in print and in Word export.
@@ -19,6 +22,8 @@ Draftwork follows [semantic versioning](https://semver.org/). The file format is
 - **A simpler Preview:** a short check first (length, AI disclosure, due date, any flags to add a note to), with the instructor's full view one click away.
 
 ### For instructors
+- **Make a copy** (More ▾): fills in the New assignment form with an assignment's settings, the way to change a due date or anything else, since settings are part of the link. Your assignments says so.
+- The instructions for students and the printable handout ask for a normal browser window, not a private one.
 - **A front page for instructors:** Write ("Try the student editor", a practice assignment) and Review ("Open assignments", which goes straight to the Assignments tab, and "Sample class"). A short note tells any student who lands there to use the assignment link from their course site.
 - **Instructions for students:** each assignment has a ready-to-paste text for the course site with the link and the steps, in the same words students see in Draftwork.
 - **Course dropbox link** (optional) on a new assignment: students get a button to open it after saving, and it's in the instructions.

@@ -240,6 +240,7 @@ label.check[data-tip] { text-decoration: none; }
 .choice h2 { color: var(--accent); margin: 0; }
 .choice p { margin: 0 0 8px; flex: 1; }
 .choice .row { gap: 8px; }
+.not-me { border-top: 1px solid var(--border); padding-top: 12px; }
 .notice.student-note { display: block; margin: 32px 0 0; color: var(--text); }
 .facts { margin: 0; padding-left: 18px; }
 .lede { font-size: 1.08rem; color: var(--muted); margin: -8px 0 24px; max-width: 560px; }

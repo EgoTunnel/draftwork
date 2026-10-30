@@ -1,7 +1,7 @@
 import { $, $$, h, toast, copyText, download, LOGO } from './ui/dom.js';
 import { popover, closePopover } from './ui/menu.js';
 import {
-  newConfig, configHash, encodeConfig, decodeConfig, parseFile, DEFAULT_THRESHOLDS, THRESHOLD_LABELS, countWords,
+  newConfig, configHash, encodeConfig, decodeConfig, parseFile, DEFAULT_THRESHOLDS, THRESHOLD_LABELS, countWords, thresholdsFor,
 } from './core/format.js';
 import { analyzeFile, finalize, fmtDuration } from './core/analysis.js';
 import { relayInfo, BROWSER_DEMO_TSA } from './core/tsa.js';
@@ -374,6 +374,8 @@ function renderLibrary() {
     box.append(h('p', { class: 'empty-state' }, 'None yet.'));
     return;
   }
+  box.append(h('p', { class: 'small muted', style: 'margin-top:0' },
+    'An assignment’s settings are part of its link, so they can’t be changed. To change them, use More ▾ → Make a copy, then give students the new link.'));
   for (const a of library) {
     const c = a.config;
     const link = studentLink(a.code);
@@ -397,7 +399,7 @@ function renderLibrary() {
         }, 'Instructions for students'),
         h('button', { class: 'btn small', type: 'button', 'data-tip': `Copy just the link:\n${link}`, onclick: () => copyText(link) }, 'Copy link'),
         h('button', {
-          class: 'btn small ghost assign-more', type: 'button', 'aria-haspopup': 'menu', 'data-tip': 'More: copy the short code, try it as a student, or remove',
+          class: 'btn small ghost assign-more', type: 'button', 'aria-haspopup': 'menu', 'data-tip': 'More: make a copy to change the settings, copy the short code, try it as a student, or remove',
           onclick: (e) => {
             const item = (label, tip, fn) => h('button', {
               class: 'menu-item', type: 'button', 'data-tip': tip,
@@ -407,6 +409,7 @@ function renderLibrary() {
               },
             }, h('span'), h('span', { class: 'menu-label' }, label), h('span'));
             popover(e.currentTarget, h('div', { class: 'menu', role: 'menu' },
+              item('Make a copy', 'Fill in the New assignment form with these settings, to change them', () => copyToForm(c)),
               item('Copy the short code', 'Students can paste the code instead of the link', () => copyText(a.code)),
               item('Try it as a student', 'Open the student page for this assignment in a new tab', () => window.open(link, '_blank', 'noopener')),
               item('Remove from this browser', 'You can add it again later from its code or link', () => {
@@ -434,7 +437,7 @@ function studentInstructions(a) {
     `Write this assignment in Draftwork, a word processor that records how your writing comes together. Open it here: ${studentLink(a.code)}`,
     due ? (due.endsWith('.') ? `Due ${due}` : `Due ${due}.`) : null,
     '',
-    '1. Open the link in Chrome or Edge on a computer. Enter your name and student number (check them carefully: they can’t be changed later), then start writing. Your draft is kept on that computer as you go.',
+    '1. Open the link in Chrome or Edge on a computer, in a normal window (not Incognito or InPrivate). Enter your name and student number (check them carefully: they can’t be changed later), then start writing. Your draft is kept on that computer as you go.',
     '2. When you’re finished, click “Save file to upload…”. This saves a .draftwork file to your Downloads folder.',
     `3. Upload that .draftwork file ${where}, the same way you’d upload a Word document. Saving doesn’t submit your assignment: it isn’t submitted until you upload the file.`,
     '4. Keep the receipt Draftwork shows you after saving.',
@@ -479,6 +482,34 @@ updateMoreSummary();
 const thBox = $('#f-thresholds');
 for (const [k, v] of Object.entries(DEFAULT_THRESHOLDS)) {
   thBox.append(h('label', { for: `th-${k}` }, THRESHOLD_LABELS[k] || k), h('input', { type: 'number', id: `th-${k}`, value: v, step: 'any', min: 0, 'data-tip': `Default: ${v}` }));
+}
+
+// "Make a copy": an assignment can't change (its settings are in the link), so changing one means
+// a new assignment with the old settings filled in.
+function copyToForm(c) {
+  const p = c.policy;
+  const local = (iso) => {
+    const d = new Date(iso);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  };
+  $('#f-title').value = c.title;
+  $('#f-due').value = c.due ? local(c.due) : '';
+  $('#f-submit').value = c.submit_url || '';
+  $('#f-paste').value = p.paste;
+  $('#f-sources').checked = !!p.sources_pane;
+  $('#f-min').value = p.words_min ?? '';
+  $('#f-max').value = p.words_max ?? '';
+  $('#f-spelling').checked = p.spelling !== false;
+  $('#f-ai').checked = !!c.ai_disclosure;
+  $('#f-tsa').value = c.tsa_url || '/tsa';
+  $('#f-demo').checked = !!c.allow_demo_tsa;
+  $('#f-anchors').value = (c.tsa_anchors || []).map((t) => `${t.name}, ${t.spki}`).join('\n');
+  const th = thresholdsFor(c);
+  for (const k of Object.keys(DEFAULT_THRESHOLDS)) $(`#th-${k}`).value = th[k];
+  updateMoreSummary();
+  $('#new-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  $('#f-title').focus({ preventScroll: true });
+  toast(`The form now has the settings of “${c.title}”. Change what you need, click Create, and give students the new link. If no one has started the old one, you can remove it.`, 9000);
 }
 
 $('#new-form').addEventListener('submit', async (ev) => {

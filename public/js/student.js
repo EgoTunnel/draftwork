@@ -126,11 +126,13 @@ async function openAssignment(code) {
     config.due && h('li', null, `Due ${new Date(config.due).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}`),
     isTestAssignment(config)
       ? h('li', { class: 'warn-text' }, 'Practice assignment: for trying Draftwork out')
-      : h('li', null, 'Needs an internet connection while you write'),
+      : h('li', null, 'Start online. If the connection drops while you write, keep writing'),
   ].filter(Boolean));
   if (!isTested()) {
     $('#browser-note').classList.remove('hidden');
   }
+  // Ask the browser not to clear the draft when the disk runs low (Chrome and Edge decide without asking).
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   if (!isDesktop()) {
     refuse('Draftwork works on desktop and laptop computers.');
     return;
@@ -150,6 +152,14 @@ async function openAssignment(code) {
     $('#resume-card').classList.remove('hidden');
     $('#resume-btn').onclick = () => begin(() => Recorder.resume(f, recOpts()));
     $('#resume-save').onclick = async () => saveFileFrom(f);
+    $('#resume-who').textContent = f.header.student_label;
+    // A shared computer: the draft here is someone else's. Set it aside (never trimmed) instead of deleting it.
+    $('#not-me-btn').onclick = async () => {
+      if (!confirm(`Start your own draft? The draft by ${f.header.student_label} isn’t deleted: it stays under “Earlier versions” on this page.`)) return;
+      await addVersion(cfgHash, f, countWords(f.final.text), { keep: true });
+      await deleteDraft(draftKey);
+      location.reload();
+    };
     $('#discard-btn').onclick = async () => {
       if (!confirm('Discard this draft from this browser? This can’t be undone.')) return;
       await deleteDraft(draftKey);
@@ -173,7 +183,7 @@ async function renderVersions() {
   for (const v of versions) {
     list.append(h('div', { class: 'row' },
       h('span', null, new Date(v.savedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })),
-      h('span', { class: 'muted small' }, `${v.words.toLocaleString()} words`),
+      h('span', { class: 'muted small' }, `${v.label} · ${v.words.toLocaleString()} words`),
       h('span', { class: 'spacer' }),
       h('button', {
         class: 'btn small', type: 'button', 'data-tip': 'Continue writing from this version. Your current draft is kept as another version.',

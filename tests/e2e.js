@@ -513,6 +513,40 @@ try {
     await q.close(cdpPort);
   });
 
+  await check('on a shared computer, the next student starts their own draft and the first is kept', async () => {
+    const shared = newConfig({ title: 'Lab essay', allowDemoTsa: true });
+    const p = await Page.open(cdpPort);
+    await p.goto(`${base}/student.html#a=${await encodeConfig(shared)}`);
+    await p.waitFor('!document.querySelector("#new-card").classList.contains("hidden")');
+    await p.eval(`document.querySelector('#label-input').value = 'First Student'; document.querySelector('#consent-input').checked = true; document.querySelector('#start-btn').click(); true`);
+    await confirmStart(p);
+    await p.waitFor('!document.querySelector("#screen-writer").classList.contains("hidden")');
+    await sleep(800); // let the draft be kept
+    await p.close(cdpPort);
+    const q = await Page.open(cdpPort);
+    await q.goto(`${base}/student.html#a=${await encodeConfig(shared)}`);
+    await q.waitFor('!document.querySelector("#resume-card").classList.contains("hidden")');
+    assert((await q.eval('document.querySelector("#resume-who").textContent')) === 'First Student', 'name not shown');
+    await q.eval(`window.confirm = () => true; document.querySelector('#not-me-btn').click(); true`);
+    await q.waitFor('!document.querySelector("#new-card").classList.contains("hidden") && !document.querySelector("#versions-card").classList.contains("hidden")');
+    assert(/First Student/.test(await q.eval('document.querySelector("#versions-list").textContent')), 'first draft not kept');
+    await q.close(cdpPort);
+  });
+
+  await check('instructor: Make a copy fills the form with an assignment\'s settings', async () => {
+    const p = await Page.open(cdpPort);
+    await p.goto(`${base}/instructor.html#assignments`);
+    assert(await p.eval('!document.querySelector("#view-assign").classList.contains("hidden")'), '#assignments did not open the Assignments tab');
+    await p.eval(`document.querySelector('#f-title').value = 'Copied essay'; document.querySelector('#f-due').value = '2026-11-14T23:59'; document.querySelector('#f-paste').value = 'allow'; document.querySelector('#f-max').value = '900'; document.querySelector('#f-ai').checked = true; document.querySelector('#f-folder').checked = false; document.querySelector('#new-form').requestSubmit(); true`);
+    await p.waitFor('[...document.querySelectorAll(".assign-row strong")].some((s) => s.textContent === "Copied essay")');
+    await p.eval(`[...document.querySelectorAll('.assign-row')].find((r) => r.textContent.includes('Copied essay')).querySelector('.assign-more').click(); true`);
+    await p.waitFor('document.querySelector(".menu-item")');
+    await p.eval(`[...document.querySelectorAll('.menu-item')].find((i) => /Make a copy/.test(i.textContent)).click(); true`);
+    const form = await p.eval(`['#f-title', '#f-due', '#f-paste', '#f-max'].map((s) => document.querySelector(s).value).concat(document.querySelector('#f-ai').checked).join('|')`);
+    assert(form === 'Copied essay|2026-11-14T23:59|allow|900|true', form);
+    await p.close(cdpPort);
+  });
+
   await check('instructor: backup, wipe the browser, restore', async () => {
     const dl = await mkdtemp(join(tmpdir(), 'draftwork-dl-'));
     const p = await Page.open(cdpPort);
