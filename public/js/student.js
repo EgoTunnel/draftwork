@@ -92,7 +92,7 @@ const isTested = () => {
 
 async function checkConnection() {
   const simulated = String(config.tsa_url).startsWith('demo:');
-  if (!simulated && !navigator.onLine) throw new Error('This computer is offline.');
+  if (!simulated && !navigator.onLine) throw new Error('This computer is offline. Connect to the internet, then try again.');
   const info = await relayInfo(simulated ? config.tsa_url : new URL(config.tsa_url, location.href).href);
   if (info && info.mode === 'mock' && !config.allow_demo_tsa) {
     throw new Error('This Draftwork server is in test mode, so your work couldn’t be verified. Let your instructor know.');
@@ -100,7 +100,7 @@ async function checkConnection() {
   try {
     await requestStamp(config.tsa_url, await sha256Hex(`draftwork-connection-check:${config.nonce}:${Date.now()}`), { timeoutMs: 12_000 });
   } catch {
-    throw new Error('The timestamp service can’t be reached. Check your internet connection and try again.');
+    throw new Error('Draftwork can’t reach the online clock service it uses to time your work. Check your internet connection, then try again. If it keeps happening, tell your instructor.');
   }
 }
 
@@ -125,8 +125,8 @@ async function openAssignment(code) {
     p.spelling === false && h('li', { 'data-tip': 'Your instructor turned off spelling and grammar suggestions for this assignment.' }, 'Spell check is off'),
     config.due && h('li', null, `Due ${new Date(config.due).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}`),
     isTestAssignment(config)
-      ? h('li', { class: 'warn-text', 'data-tip': 'Timestamps are simulated, so this file can’t prove when it was written. Fine for trying Draftwork out; real assignments use a timestamp service.' }, 'Test assignment: for trying Draftwork out')
-      : h('li', { 'data-tip': 'Your work is timestamped as you go, so you need to stay connected.' }, 'Needs an internet connection'),
+      ? h('li', { class: 'warn-text' }, 'Practice assignment: for trying Draftwork out')
+      : h('li', null, 'Needs an internet connection while you write'),
   ].filter(Boolean));
   if (!isTested()) {
     $('#browser-note').classList.remove('hidden');
@@ -224,7 +224,7 @@ function takeLock() {
 async function begin(makeRecorder) {
   $('#refusal').classList.add('hidden');
   const status = $('#start-status');
-  status.textContent = 'Connecting…';
+  status.textContent = 'Checking your internet connection…';
   for (const b of $$('#screen-setup button')) b.disabled = true;
   try {
     if (!(await takeLock())) throw new Error('This assignment is already open in another tab or window. Close it there, then try again.');
@@ -240,10 +240,31 @@ async function begin(makeRecorder) {
   }
 }
 
-$('#new-card').addEventListener('submit', (ev) => {
+// The name can't change once the history is sealed, so it's confirmed before starting.
+function confirmName(label) {
+  const dlg = $('#name-dlg');
+  $('#name-check').textContent = label;
+  return new Promise((resolve) => {
+    dlg.addEventListener('close', () => resolve(dlg.returnValue === 'ok'), { once: true });
+    dlg.returnValue = '';
+    dlg.showModal();
+    $('#name-ok').focus();
+  });
+}
+
+$('#recorded-info').addEventListener('click', () => {
+  const open = $('#recorded-text').classList.toggle('hidden') === false;
+  $('#recorded-info').setAttribute('aria-expanded', String(open));
+});
+
+$('#new-card').addEventListener('submit', async (ev) => {
   ev.preventDefault();
-  const label = $('#label-input').value.trim();
+  const label = $('#label-input').value.trim().replace(/\s+/g, ' ');
   if (!label) return;
+  if (!(await confirmName(label))) {
+    $('#label-input').focus();
+    return;
+  }
   begin(() => Recorder.create({
     ...recOpts(),
     config,
@@ -340,6 +361,50 @@ function startWriting() {
   updateDue();
   updateFileSaveStatus();
   saveDraft();
+  if (!tourSeen()) showTour();
+}
+
+// ---------- first-run tour: three cards, once ----------
+
+const TOUR_KEY = 'draftwork.tour';
+const TOUR = [
+  { at: '#sheet', title: 'Write here, like in Word', text: 'The menus and toolbar work the way you’re used to: styles, fonts, lists, footnotes, find and replace.' },
+  { at: '#autosave-status', title: 'Your draft keeps itself', text: 'As you write, Draftwork keeps your draft on this computer. You can close the page and come back to it here.' },
+  { at: '#save-btn', title: 'When you’re finished', text: 'Click “Save file to upload…”, then upload the file to your course. Saving doesn’t submit it: the upload does.' },
+];
+function tourSeen() {
+  try {
+    return !!localStorage.getItem(TOUR_KEY);
+  } catch {
+    return true;
+  }
+}
+function showTour(step = 0) {
+  const box = $('#tour');
+  for (const el of $$('.tour-target')) el.classList.remove('tour-target');
+  if (step >= TOUR.length) {
+    box.classList.add('hidden');
+    try {
+      localStorage.setItem(TOUR_KEY, '1');
+    } catch { /* not kept */ }
+    return;
+  }
+  const s = TOUR[step];
+  const target = $(s.at);
+  if (target) target.classList.add('tour-target');
+  box.innerHTML = '';
+  box.append(
+    h('div', { class: 'tour-step small muted' }, `${step + 1} of ${TOUR.length}`),
+    h('strong', null, s.title),
+    h('p', null, s.text),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn small ghost', type: 'button', onclick: () => showTour(TOUR.length) }, 'Skip'),
+      h('span', { class: 'spacer' }),
+      h('button', { class: 'btn small primary', type: 'button', onclick: () => showTour(step + 1) }, step === TOUR.length - 1 ? 'Got it' : 'Next')));
+  box.classList.remove('hidden');
+  // Announced, but focus stays in the document so typing isn't interrupted.
+  const live = $('#sr-status');
+  live.textContent = `${s.title}. ${s.text}`;
 }
 
 function applyDocStyle() {
@@ -730,6 +795,7 @@ function buildMenus() {
     {
       label: 'Help',
       items: () => [
+        { label: 'Show the quick tour', action: () => showTour(0) },
         { label: 'Help and troubleshooting', action: () => window.open('help.html#students', '_blank', 'noopener') },
         { label: 'How Draftwork works', action: () => window.open('guide.html', '_blank', 'noopener') },
         { label: 'What’s recorded (privacy)', action: () => window.open('privacy.html', '_blank', 'noopener') },
@@ -1186,32 +1252,38 @@ setInterval(() => {
 }, 1000);
 setInterval(() => dirty && saveDraft(), 5000);
 
+$('#stamp-pill').addEventListener('click', () => {
+  const say = $('#stamp-pill').dataset.say;
+  if (say) toast(say, 9000);
+});
+
 function updateStampPill() {
   if (!rec) return;
   const pill = $('#stamp-pill');
   const txt = $('#stamp-text');
   const pending = rec.unstamped();
+  // The pill is a button: clicking it says the same thing in full, for anyone who doesn't hover.
   if (!pending.length && isTestAssignment(config)) {
-    pill.className = 'pill';
-    txt.textContent = 'Test assignment';
-    pill.dataset.tip = 'Timestamps are simulated for this test assignment, so the file can’t prove when it was written.';
+    pill.className = 'pill pill-btn';
+    txt.textContent = 'Practice assignment';
+    pill.dataset.tip = pill.dataset.say = 'This is a practice assignment for trying Draftwork out. Times aren’t checked by the online clock service, so the file can’t show when it was written.';
     return;
   }
   if (!pending.length) {
-    pill.className = 'pill ok';
-    txt.textContent = 'Connected';
-    pill.dataset.tip = rec.lastStampOk ? `Your progress was last timestamped at ${new Date(rec.lastStampOk).toLocaleTimeString()}.` : 'Your progress is timestamped about once a minute while you write.';
+    pill.className = 'pill pill-btn ok';
+    txt.textContent = 'Online';
+    pill.dataset.tip = pill.dataset.say = `You’re online, and the time of your writing is being recorded${rec.lastStampOk ? ` (last at ${new Date(rec.lastStampOk).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })})` : ''}. Nothing to do.`;
     return;
   }
   const oldest = Math.min(...pending.map((c) => cpCreated.get(c.c) || Date.now()));
   const age = Date.now() - oldest;
-  pill.className = age > STAMP_GAP_WARN_MS ? 'pill bad' : 'pill warn';
-  txt.textContent = 'Reconnecting…';
-  pill.dataset.tip = 'Can’t reach the timestamp service. Keep writing; your progress will be timestamped when the connection returns.' +
-    (age > STAMP_GAP_WARN_MS ? ' A gap of more than 10 minutes will be visible to your instructor.' : '');
+  pill.className = `pill pill-btn ${age > STAMP_GAP_WARN_MS ? 'bad' : 'warn'}`;
+  txt.textContent = 'Offline · keep writing';
+  pill.dataset.tip = pill.dataset.say = 'Draftwork can’t reach the online clock service right now. Keep writing: your work is safe on this computer, and the time is recorded when the connection comes back.' +
+    (age > STAMP_GAP_WARN_MS ? ' It’s been a while, so check your internet connection. If it lasts, save your file, upload it as usual, and mention it to your instructor.' : '');
   if (age > STAMP_GAP_WARN_MS && !updateStampPill.warned) {
     updateStampPill.warned = true;
-    toast('No connection for over 8 minutes. Please check your internet connection.', 8000);
+    toast('Draftwork has been offline for over 8 minutes. Your work is safe on this computer; please check your internet connection. If it lasts, save your file, upload it as usual, and mention it to your instructor.', 12000);
   }
   if (age <= STAMP_GAP_WARN_MS) updateStampPill.warned = false;
 }

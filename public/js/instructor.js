@@ -8,7 +8,7 @@ import { relayInfo, BROWSER_DEMO_TSA } from './core/tsa.js';
 import { DEMO_CONFIG } from './core/demo.js';
 import { sha256Hex } from './core/canon.js';
 import { isZip, readZip, lmsName, namesMatch } from './core/zipread.js';
-import { renderReport, LEVELS, FILE_STATUS } from './ui/report.js';
+import { renderReport, LEVELS, FILE_STATUS, fileNotes } from './ui/report.js';
 import { makeBackup, parseBackup, notesFor, mergeNotes, mergeRemoved, isRemoved } from './core/backup.js';
 import {
   folderSupported, savedFolder, chooseFolder, forgetFolder, folderPermission, readLatest, writeBackup,
@@ -368,6 +368,7 @@ $('#restore-input').addEventListener('change', async (ev) => {
 function renderLibrary() {
   const box = $('#assign-list');
   box.innerHTML = '';
+  updateFirstSteps();
   box.append(h('h2', null, 'Your assignments'));
   if (!library.length) {
     box.append(h('p', { class: 'empty-state' }, 'None yet.'));
@@ -431,7 +432,7 @@ function studentInstructions(a) {
     c.policy.paste === 'block'
       ? `Pasting text from other places is turned off.${c.policy.sources_pane ? ' To quote a source, paste it into the Sources panel on the right, then copy it into your writing from there.' : ''}`
       : null,
-    'Working on another computer? Save your file, then on the other computer open the link above and choose “Open saved file…” to keep writing.',
+    'Working on another computer? Save your file, then on the other computer open the link above and choose “Continue from a file I saved…” to keep writing.',
     'Please upload only the .draftwork file, not a Word document. If something isn’t working, save your file and contact me.',
   ].filter((l) => l !== null).join('\n');
 }
@@ -711,6 +712,16 @@ function groupsOf() {
   return groups;
 }
 
+// The first-steps list on an empty Submissions page, with step 1 ticked once there's an assignment.
+function updateFirstSteps() {
+  $('#empty-hint').classList.toggle('hidden', loaded.length > 0 || otherFiles.length > 0);
+  const [first, second] = $$('#empty-hint li');
+  const has = realAssignments().length > 0;
+  first.classList.toggle('done', has);
+  second.classList.toggle('current', has);
+  first.classList.toggle('current', !has);
+}
+
 // A file's name as the student gave it, without the course site's prefix, and what kind it is.
 function plainFileName(name) {
   const base = name
@@ -748,7 +759,7 @@ function wrongFilesNotice() {
 function renderGroups() {
   const box = $('#groups');
   box.innerHTML = '';
-  $('#empty-hint').classList.toggle('hidden', loaded.length > 0 || otherFiles.length > 0);
+  updateFirstSteps();
   const known = knownHashes();
   const wrong = wrongFilesNotice();
   if (wrong) box.append(wrong);
@@ -796,7 +807,8 @@ function renderGroups() {
         h('td', null, F.sessions.length),
         h('td', null, fmtDuration(F.raw.active)),
         h('td', null, h('span', { 'data-tip': integrityTip },
-          fails ? h('span', { class: 'pill bad' }, fileStatus.label) : h('span', { class: 'small muted' }, fileStatus.label))),
+          fails ? h('span', { class: 'pill bad' }, fileStatus.label) : h('span', { class: 'small muted' }, fileStatus.label),
+          !fails && fileNotes(F).length ? h('div', { class: 'small muted file-note' }, fileNotes(F).join(', ')) : null)),
         h('td', null, h('div', { class: 'chips' },
           h('span', { class: `pill level ${level.cls}`, 'data-tip': level.tip }, level.label),
           [...new Map(F.flags.map((f) => [f.title, f])).values()].map((f) => h('span', {

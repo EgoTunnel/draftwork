@@ -32,9 +32,20 @@
         <div class="row" style="align-items:baseline">
           <h1 id="a-title" style="margin:0"></h1>
           <span class="spacer"></span>
-          <button class="btn small ghost" type="button" id="recorded-info" data-tip="Your edits and when you made them are saved with your work, so your instructor can replay how it was written. While you write, only a fingerprint of your progress is sent online, to timestamp it. Your text stays on this computer until you upload the file.">What’s recorded?</button>
+          <button class="btn small ghost" type="button" id="recorded-info" aria-expanded="false" aria-controls="recorded-text">What’s recorded?</button>
         </div>
+        <p class="small hidden" id="recorded-text" style="margin:0">Your edits, and when you made them, are kept with your work so your instructor can replay how it was written. While you write, Draftwork sends a short code made from your progress (not your text) to an online clock service, which records the time. Your text stays on this computer until you upload the file. <a href="privacy.html" target="_blank" rel="noopener">More about privacy</a></p>
         <ul id="a-policy" class="facts"></ul>
+      </div>
+
+      <div class="card hidden" id="file-card">
+        <div class="row">
+          <span>Started on another computer?</span>
+          <span class="spacer"></span>
+          <label class="btn" for="continue-file">Continue from a file I saved…</label>
+          <input type="file" id="continue-file" accept=".draftwork" class="hidden">
+        </div>
+        <p class="small muted" style="margin:6px 0 0">Choose the .draftwork file you saved last time (usually in Downloads), and you’ll carry on where you left off.</p>
       </div>
 
       <div class="card stack hidden" id="resume-card">
@@ -52,8 +63,9 @@
       <form class="card stack hidden" id="new-card">
         <h2>Start writing</h2>
         <div>
-          <label for="label-input" data-tip="Shown to your instructor with your work. It’s the only personal information in the file and can’t be changed later.">Name and student number</label>
-          <input type="text" id="label-input" required placeholder="A. Student, 000123456" autocomplete="name">
+          <label for="label-input">Name and student number</label>
+          <input type="text" id="label-input" required placeholder="A. Student, 000123456" autocomplete="name" aria-describedby="label-hint">
+          <div class="small muted" id="label-hint" style="margin-top:4px">Shown to your instructor with your work. Check it carefully: it can’t be changed later.</div>
         </div>
         <div>
           <label for="notes-input" data-tip="Anything your instructor should know about how you worked, e.g. you outlined on paper or used dictation. You can add this later from File → Notes.">Notes <span class="hint">(optional)</span></label>
@@ -64,7 +76,7 @@
           <strong>Before you start</strong>
           <ul>
             <li>Every edit you make, and when you make it, is saved in your file so your instructor can replay how you wrote.</li>
-            <li>While you write, only a fingerprint of your progress is sent online, to timestamp it. Your text stays on this computer until you upload the file.</li>
+            <li>While you write, Draftwork sends a short code made from your progress (not your text) to an online clock service, so the time is on record. Your text stays on this computer until you upload the file.</li>
             <li>Your instructor may ask you about moments in your writing. Nothing here is a grade: it can only lead to a conversation.</li>
           </ul>
           <label class="check"><input type="checkbox" id="consent-input" required> <span>I understand what’s recorded. <a href="privacy.html" target="_blank" rel="noopener">More about privacy</a></span></label>
@@ -80,14 +92,6 @@
         <div id="versions-list" class="stack-sm" style="margin-top:10px"></div>
       </details>
 
-      <div class="card hidden" id="file-card">
-        <div class="row">
-          <span>Working from another computer?</span>
-          <span class="spacer"></span>
-          <label class="btn" for="continue-file" data-tip="Open the .draftwork file you saved last time and keep writing">Open saved file…</label>
-          <input type="file" id="continue-file" accept=".draftwork" class="hidden">
-        </div>
-      </div>
     </main>
   </div>
 
@@ -103,7 +107,7 @@
         <div id="menus"></div>
       </div>
       <span class="spacer"></span>
-      <span class="pill" id="stamp-pill"><span class="dot"></span><span id="stamp-text">Connecting…</span></span>
+      <button class="pill pill-btn" type="button" id="stamp-pill"><span class="dot"></span><span id="stamp-text">Checking connection…</span></button>
       <span class="appearance-slot"></span>
       <button class="btn small" id="preview-btn" type="button" data-tip="See your work the way your instructor will">Preview</button>
       <button class="btn small primary" id="save-btn" type="button" data-tip="Save the file you upload to your course (Ctrl+S). Saving doesn’t submit it.">Save file to upload…</button>
@@ -159,6 +163,7 @@
         <textarea id="sources" spellcheck="false" aria-label="Sources" placeholder="Paste quotes and references here"></textarea>
       </aside>
     </div>
+    <div class="tour hidden" id="tour" role="region" aria-label="Quick tour"></div>
     <footer class="statusbar">
       <span id="sb-page" data-tip="Approximate page, based on a letter-size page">Page 1 of 1</span>
       <button class="linklike" type="button" id="sb-words" data-tip="Word count details">0 words</button>
@@ -214,12 +219,28 @@
           <textarea id="ai-detail" rows="2" placeholder="Which tool, and how? (optional)" aria-label="Details of AI use"></textarea>
         </fieldset>
         <div>
-          <label for="dlg-outline" data-tip="Only the file name and a fingerprint are kept, as a record that it existed. The file itself isn’t stored or sent.">Attach an outline or notes <span class="hint">(photo or PDF)</span></label>
+          <label for="dlg-outline" data-tip="Only the file name and a short code made from it are kept, as a record that it existed. The file itself isn’t stored or sent.">Attach an outline or notes <span class="hint">(photo or PDF)</span></label>
           <input type="file" id="dlg-outline" accept="image/*,.pdf">
           <ul id="dlg-attachments" class="small muted" style="margin:6px 0 0;padding-left:18px"></ul>
         </div>
       </div>
       <div class="dlg-foot"><button class="btn primary" value="ok">Done</button></div>
+    </form>
+  </dialog>
+
+  <!-- Check the name before starting -->
+  <dialog id="name-dlg">
+    <form method="dialog">
+      <div class="dlg-body stack">
+        <h2>Is your name right?</h2>
+        <p style="margin:0">Your instructor will see your work under:</p>
+        <div class="name-check" id="name-check"></div>
+        <p class="small muted" style="margin:0">This can’t be changed once you start.</p>
+      </div>
+      <div class="dlg-foot">
+        <button class="btn" value="cancel">Go back and fix it</button>
+        <button class="btn primary" value="ok" id="name-ok">Yes, start writing</button>
+      </div>
     </form>
   </dialog>
 
@@ -242,7 +263,7 @@
           <li>
             <strong>Keep your receipt.</strong> It identifies exactly this file, so you can show which version you uploaded.
             <div class="row" style="margin-top:6px">
-              <div class="receipt" id="receipt-code" data-tip="A fingerprint of the file. Your instructor sees the same code when they open it."></div>
+              <div class="receipt" id="receipt-code" data-tip="A code made from your file. Your instructor sees the same code when they open it, so it shows exactly which file you uploaded."></div>
               <button class="btn small" type="button" id="receipt-copy">Copy receipt</button>
             </div>
             <div class="small muted" id="receipt-meta"></div>

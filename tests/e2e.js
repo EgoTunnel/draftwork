@@ -178,6 +178,12 @@ const assert = (cond, msg) => {
   if (!cond) throw new Error(msg);
 };
 
+// Starting asks the student to confirm their name, which can't change later.
+async function confirmStart(p) {
+  await p.waitFor('document.querySelector("#name-dlg").open', 10000);
+  await p.eval(`document.querySelector('#name-ok').click(); true`);
+}
+
 // Preview opens the student's short check first; this goes on to the instructor's full view.
 async function fullPreview(p) {
   await p.eval(`document.querySelector('#preview-btn').click(); true`);
@@ -231,7 +237,20 @@ try {
     await page.eval(`document.querySelector('#start-btn').click(); true`);
     await sleep(300);
     assert(await page.eval('document.querySelector("#screen-writer").classList.contains("hidden")'), 'started without consent');
+    // The name is shown back for checking; going back leaves it editable and nothing started.
     await page.eval(`document.querySelector('#consent-input').checked = true; document.querySelector('#start-btn').click(); true`);
+    await page.waitFor('document.querySelector("#name-dlg").open');
+    assert((await page.eval('document.querySelector("#name-check").textContent')) === 'E2E Student, 1', 'name not shown for checking');
+    await page.eval(`document.querySelector('#name-dlg').close('cancel'); true`);
+    await sleep(200);
+    assert(await page.eval('document.querySelector("#screen-writer").classList.contains("hidden")'), 'started without confirming the name');
+    await page.eval(`document.querySelector('#start-btn').click(); true`);
+    await confirmStart(page);
+    // The quick tour appears once, without taking focus from the document.
+    await page.waitFor('!document.querySelector("#tour").classList.contains("hidden")');
+    assert(/Write here, like in Word/.test(await page.eval('document.querySelector("#tour").textContent')), 'tour text');
+    for (let k = 0; k < 3; k++) await page.eval(`document.querySelector('#tour .btn.primary').click(); true`);
+    assert(await page.eval('document.querySelector("#tour").classList.contains("hidden") && localStorage.getItem("draftwork.tour") === "1"'), 'tour did not finish');
     await page.waitFor('!document.querySelector("#screen-writer").classList.contains("hidden")');
     await page.eval('document.querySelector("#editor").focus(); true');
   });
@@ -387,6 +406,7 @@ try {
     await p.goto(`${base}/student.html#a=${await encodeConfig(open)}`);
     await p.waitFor('!document.querySelector("#new-card").classList.contains("hidden")');
     await p.eval(`document.querySelector('#label-input').value = 'Citer'; document.querySelector('#consent-input').checked = true; document.querySelector('#start-btn').click(); true`);
+    await confirmStart(p);
     await p.waitFor('!document.querySelector("#screen-writer").classList.contains("hidden")');
     await p.eval('document.querySelector("#editor").focus(); true');
     await p.type('Intro. ');
@@ -420,6 +440,7 @@ try {
     await p.goto(`${base}/student.html#a=${await encodeConfig(cfg)}`);
     await p.waitFor('!document.querySelector("#new-card").classList.contains("hidden")');
     await p.eval(`document.querySelector('#label-input').value = 'Noter'; document.querySelector('#consent-input').checked = true; document.querySelector('#start-btn').click(); true`);
+    await confirmStart(p);
     await p.waitFor('!document.querySelector("#screen-writer").classList.contains("hidden")');
     await p.eval('document.querySelector("#editor").focus(); true');
     await p.type('Cities remember.');
@@ -460,6 +481,7 @@ try {
     await p.waitFor('!document.querySelector("#new-card").classList.contains("hidden")');
     assert(/Spell check is off/.test(await p.eval('document.querySelector("#a-policy").textContent')), 'not shown to the student');
     await p.eval(`document.querySelector('#label-input').value = 'Speller'; document.querySelector('#consent-input').checked = true; document.querySelector('#start-btn').click(); true`);
+    await confirmStart(p);
     await p.waitFor('!document.querySelector("#screen-writer").classList.contains("hidden")');
     assert(!(await p.eval('document.querySelector("#editor").spellcheck')), 'spellcheck still on');
     await p.close(cdpPort);
@@ -557,8 +579,9 @@ try {
     await demo.goto(await demo.eval('document.querySelector("#try-student").href'));
     await demo.waitFor('!document.querySelector("#new-card").classList.contains("hidden")');
     const facts = await demo.eval('document.querySelector("#a-policy").textContent');
-    assert(/Test assignment/.test(facts), 'not marked as a test assignment');
+    assert(/Practice assignment/.test(facts), 'not marked as a practice assignment');
     await demo.eval(`document.querySelector('#label-input').value = 'Visitor'; document.querySelector('#consent-input').checked = true; document.querySelector('#start-btn').click(); true`);
+    await confirmStart(demo);
     await demo.waitFor('!document.querySelector("#screen-writer").classList.contains("hidden")');
     await demo.eval('document.querySelector("#editor").focus(); true');
     await demo.type('A short test.');

@@ -10,13 +10,20 @@ Draftwork follows [semantic versioning](https://semver.org/). The file format is
 - **Header and page numbers** (Format): header text such as your last name, with page numbers top right (MLA), bottom centre, or none. Shown on the page, in print and in Word export.
 
 - **Saving, then uploading, made unmistakable:** "Save file to upload…" saves the file and shows where it went, the upload step (with a button for the course dropbox when there is one), and the receipt. It says plainly that saving doesn't submit the assignment. The status bar reads "Draft kept on this computer" and "File saved 9:52 · remember to upload it", and never claims the work was submitted. The Word export is labelled "not for submitting".
+- **Name check before starting:** the name and student number are shown back ("Is your name right?") before writing starts, since they can't be changed later. The form says so in visible text too.
+- **A quick tour** the first time the editor opens: three short cards (write here, your draft keeps itself, save then upload), never taking focus from the document. Help → Show the quick tour brings it back.
+- **Plainer connection status:** "Online", "Offline · keep writing" or "Practice assignment", and clicking it explains what's happening in words, without needing to hover. Connection errors say what to do.
+- **"Continue from a file I saved…"** moved up the start page, with a line explaining it, for students working on more than one computer.
+- **Plainer wording:** "a short code made from your progress (not your text)" instead of "fingerprint"; "What's recorded?" opens a visible explanation instead of a tooltip.
 - **A simpler Preview:** a short check first (length, AI disclosure, due date, any flags to add a note to), with the instructor's full view one click away.
 
 ### For instructors
 - **Instructions for students:** each assignment has a ready-to-paste text for the course site with the link and the steps, in the same words students see in Draftwork.
 - **Course dropbox link** (optional) on a new assignment: students get a button to open it after saving, and it's in the instructions.
 - **Wrong files spotted:** when a course-site zip contains a Word document (or anything else) instead of a `.draftwork` file, the list names those students, so they aren't silently missing.
-- **First steps** on an empty Submissions page.
+- **First steps** on an empty Submissions page, with step 1 ticked once there's an assignment.
+- **No more "Unaltered\*":** the File column and report say the reason in words, such as "Unaltered · test timestamps".
+- **Detailed measurements folded away:** the signals table is under "Detailed measurements", and the writing-process graph has a visible one-line explanation of how to read it.
 - **A one-line summary at the top of each report** saying what to do, and the file checks fold into one line when everything passed.
 - **Spell check option:** a new assignment setting allows or turns off the browser's spelling and grammar suggestions.
 - **Clearer flags:** every flag has a plain-language title and explanation, with the measurements and thresholds in a smaller line beneath. For example, "Transcription stretch" is now "Typed straight through, like copying".

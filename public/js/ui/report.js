@@ -25,9 +25,18 @@ export const SEVERITY = {
 // What the integrity checks mean, for labels and tooltips.
 export const FILE_STATUS = {
   intact: { label: 'Unaltered', tip: 'This file is an unaltered record made in Draftwork. That’s all it means: it says nothing about who wrote the text or how. See Flags for that.' },
-  note: { label: 'Unaltered*', tip: 'An unaltered Draftwork record, with a note (for example demo timestamps, or an assignment not in your list). It says nothing about who wrote the text or how.' },
+  note: { label: 'Unaltered', tip: 'An unaltered Draftwork record, with a note shown beside it. It says nothing about who wrote the text or how.' },
   altered: { label: 'Altered', tip: 'This file was changed after it was written, or wasn’t made in Draftwork. Its record can’t be trusted.' },
 };
+
+// Short, visible reasons for checks that didn't fully pass, e.g. "test timestamps".
+export function fileNotes(F) {
+  return F.integrity.filter((c) => c.status === 'warn' || c.status === 'unknown').map((c) => {
+    if (c.id === 'tsa') return c.status === 'warn' ? 'test timestamps' : 'no timestamps';
+    if (c.id === 'config') return 'assignment not in your list';
+    return c.label.toLowerCase();
+  });
+}
 
 export const AI_USE = {
   none: 'No AI tools', ideas: 'For ideas or brainstorming', feedback: 'For feedback on my writing',
@@ -233,7 +242,8 @@ export function renderReport(root, F, {
   tabs.append(h('span', { class: 'spacer' }),
     (() => {
       const st = FILE_STATUS[failing ? 'altered' : passing < F.integrity.length ? 'note' : 'intact'];
-      return h('span', { class: `pill ${failing ? 'bad' : ''}`, 'data-tip': st.tip }, failing ? `File altered (${failing} check${failing === 1 ? '' : 's'} failed)` : `File ${st.label.toLowerCase()}`);
+      const why = fileNotes(F);
+      return h('span', { class: `pill ${failing ? 'bad' : ''}`, 'data-tip': st.tip }, failing ? `File altered (${failing} check${failing === 1 ? '' : 's'} failed)` : `File unaltered${why.length ? ` · ${why.join(', ')}` : ''}`);
     })(),
     h('span', { class: `pill ${LEVELS[F.level].cls}`, 'data-tip': LEVELS[F.level].tip },
       F.flags.length ? `${F.flags.length} flag${F.flags.length === 1 ? '' : 's'}${F.level === 'major' ? ', major' : ''}` : 'No flags'),
@@ -324,8 +334,12 @@ export function renderReport(root, F, {
   const statsById = Object.fromEntries((F.classStats || []).map((c) => [c.id, c]));
   const l3 = h('section', { class: 'card', id: 'layer-signals' },
     sectionHead('Writing process', 'How the text was produced over time. In composed writing the three lines separate: total typed runs above length because of deletions, and the cursor drops when the writer goes back. When text is copied in, they run almost together.'),
+    h('p', { class: 'small muted', style: 'margin:0 0 10px' }, 'How the text grew over writing time. When someone composes, the lines pull apart as they delete and go back to revise. When text is copied in, the lines run close together in a steady climb. Click the graph to see that moment in the replay.'),
     graph.el,
-    h('div', { class: 'table-wrap', style: 'margin-top:16px' },
+    h('details', { class: 'measures' },
+      h('summary', { 'data-tip': 'The numbers behind the flags, compared with the class' }, 'Detailed measurements'),
+      h('p', { class: 'small muted', style: 'margin:8px 0 0' }, 'The measurements the flags are based on, with where this file sits in the class. Hover a name for what it measures. Most check-ins never need these.'),
+    h('div', { class: 'table-wrap', style: 'margin-top:8px' },
       h('table', { class: 'signals' },
         h('thead', null, h('tr', null, h('th', null, 'Signal'), h('th', null, 'This file'), h('th', { 'data-tip': 'Compared with the other submissions for this assignment, and the student’s own earlier work when loaded' }, 'Class'))),
         h('tbody', null, F.signals.map((sg) => {
@@ -341,7 +355,7 @@ export function renderReport(root, F, {
               strip(cs.values, sg.metric, cs.priors, fmt) || h('span', { class: 'muted small' }, '—'),
               cs.priors.map((p) => h('div', { class: 'small' }, `${p.title}: `, h('strong', null, fmt(p.value))))),
           );
-        })))),
+        }))))),
   );
 
   // ---------- overview: questions ----------

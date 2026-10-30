@@ -105,7 +105,7 @@ try {
   const base = `http://localhost:${port}`;
   // Theme for the run.
   await go(`${base}/index.html`);
-  await evaluate(`localStorage.setItem('draftwork.appearance', JSON.stringify({ theme: '${THEME}', size: 'normal' })); true`);
+  await evaluate(`localStorage.setItem('draftwork.appearance', JSON.stringify({ theme: '${THEME}', size: 'normal' })); localStorage.setItem('draftwork.tour', '1'); true`);
   const sfx = THEME === 'light' ? '' : `-${THEME}`;
 
   console.log(`Screenshots (${THEME}) → ${OUT}`);
@@ -167,6 +167,8 @@ try {
     await go(`${base}/student.html#a=${await encodeConfig(open)}`);
     await waitFor('!document.querySelector("#new-card").classList.contains("hidden")');
     await evaluate(`document.querySelector('#label-input').value = 'Sam Student'; document.querySelector('#consent-input').checked = true; document.querySelector('#start-btn').click(); true`);
+    await waitFor('document.querySelector("#name-dlg").open');
+    await evaluate(`document.querySelector('#name-ok').click(); true`);
     await waitFor('!document.querySelector("#screen-writer").classList.contains("hidden")');
     await evaluate('document.querySelector("#editor").focus(); true');
     await send('Input.insertText', { text: 'The reading argues that ' });
