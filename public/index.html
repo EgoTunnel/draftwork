@@ -20,35 +20,24 @@
   </header>
   <main class="page narrow">
     <h1 class="home-title">Draftwork</h1>
-    <p class="lede">Students write in a word processor that records how their work came together. Instructors replay it and ask about a few specific moments in a short conversation.</p>
+    <p class="lede">Your students write in a word processor that records how their work came together. You replay it, then ask about a few specific moments in a short conversation.</p>
     <div class="choices">
-      <a class="card choice" href="student.html">
+      <section class="card choice">
         <h2>Write</h2>
-        <p class="muted">Open an assignment from your instructor.</p>
-      </a>
-      <a class="card choice" href="instructor.html">
+        <p class="muted">See what your students see. Write a few paragraphs in a practice assignment, then click <strong>Preview</strong> to see the report you would get.</p>
+        <div class="row"><a class="btn primary" id="try-student" href="student.html">Try the student editor</a></div>
+      </section>
+      <section class="card choice">
         <h2>Review</h2>
-        <p class="muted">Create assignments and read submissions.</p>
-      </a>
+        <p class="muted">Create assignments, and read what your students upload. New to Draftwork? Look through a sample class first.</p>
+        <div class="row">
+          <a class="btn primary" href="instructor.html">Open assignments</a>
+          <a class="btn" id="try-instructor" href="instructor.html#demo">Open sample class</a>
+        </div>
+      </section>
     </div>
 
-    <section class="try card">
-      <h2>Try it</h2>
-      <div class="try-row">
-        <div>
-          <strong>As a student</strong>
-          <p class="muted small">Write a few paragraphs in a practice assignment, then open Preview to see what an instructor would see.</p>
-        </div>
-        <a class="btn primary" id="try-student" href="student.html">Start writing</a>
-      </div>
-      <div class="try-row">
-        <div>
-          <strong>As an instructor</strong>
-          <p class="muted small">Explore a sample class, including a few submissions that were copied, retyped or tampered with.</p>
-        </div>
-        <a class="btn" id="try-instructor" href="instructor.html#demo">Open sample class</a>
-      </div>
-    </section>
+    <p class="notice info student-note"><strong>Are you a student?</strong> You do not need this page. Open the assignment link from your instructor, usually on your course site. <a href="student.html">I have a link or code</a></p>
 
     <p class="small muted center">Free and open source (Apache 2.0). <a href="guide.html">How it works</a></p>
   </main>
@@ -63,9 +52,13 @@
     $('.appearance-slot').append(appearanceButton());
     encodeConfig(DEMO_CONFIG).then((code) => { $('#try-student').href = `student.html#a=${code}`; });
     // The sample class needs the bundled samples; hide the option where they aren't available.
+    const noSamples = () => {
+      $('#try-instructor').remove();
+      $('.choice:last-child p').textContent = 'Create assignments, and read what your students upload.';
+    };
     fetch('samples/index.json').then((r) => (r.ok ? r.json() : [])).then((names) => {
-      if (!names.some((n) => n.endsWith('.draftwork'))) $('#try-instructor').closest('.try-row').remove();
-    }).catch(() => $('#try-instructor').closest('.try-row').remove());
+      if (!names.some((n) => n.endsWith('.draftwork'))) noSamples();
+    }).catch(noSamples);
   </script>
 </body>
 </html>

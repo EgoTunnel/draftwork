@@ -599,7 +599,7 @@ try {
   const statics = staticServer(site, staticPort);
   const sbase = `http://localhost:${staticPort}`;
 
-  await check('static demo: "Start writing" works with simulated timestamps', async () => {
+  await check('static demo: "Try the student editor" works with simulated timestamps', async () => {
     const demo = await Page.open(cdpPort);
     await demo.goto(`${sbase}/index.html`);
     await demo.waitFor('document.querySelector("#try-student").href.includes("#a=")');
