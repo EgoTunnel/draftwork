@@ -588,7 +588,7 @@ export function renderReport(root, F, {
       h('summary', { 'data-tip': 'Text pasted from outside Draftwork, with the source details the student gave when prompted' },
         `Pasted sources (${pastes.length}${cited < pastes.length ? `, ${pastes.length - cited} without details` : ''})`),
       h('ol', { class: 'sources-list' }, pastes.map((e) => {
-        const text = (e.x || '').replace(/\s+/g, ' ').trim();
+        const text = (e.x || '').replace(/\s+/g, ' ').trim().replace(/^["“]([\s\S]*)["”]$/, '$1');
         return h('li', null,
           h('div', { class: 'src-text' }, `“${text.length > 220 ? `${text.slice(0, 220)}…` : text}”`),
           h('div', { class: 'src-cite' }, cites.has(e.s) ? h('span', null, 'Source: ', h('strong', null, cites.get(e.s))) : h('span', { class: 'muted' }, 'No source given'),

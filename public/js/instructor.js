@@ -432,7 +432,7 @@ function studentInstructions(a) {
     `${c.title}: writing in Draftwork`,
     '',
     `Write this assignment in Draftwork, a word processor that records how your writing comes together. Open it here: ${studentLink(a.code)}`,
-    due ? `Due ${due}.` : null,
+    due ? (due.endsWith('.') ? `Due ${due}` : `Due ${due}.`) : null,
     '',
     '1. Open the link in Chrome or Edge on a computer. Enter your name and student number (check them carefully: they can’t be changed later), then start writing. Your draft is kept on that computer as you go.',
     '2. When you’re finished, click “Save file to upload…”. This saves a .draftwork file to your Downloads folder.',

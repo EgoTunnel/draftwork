@@ -900,7 +900,8 @@ function dueNudge(left, due) {
   const todo = !lastFileSave || unsavedToFile()
     ? 'When you’re finished, save your file, then upload it to your course.'
     : 'Your file is saved. Remember to upload it to your course.';
-  const head = { day: `Due in less than a day: ${when}.`, hour: `Due in less than an hour: ${when}.`, past: `The due date (${when}) has passed.` }[hit[0]];
+  const stop = (s) => (s.endsWith('.') ? s : `${s}.`);
+  const head = { day: stop(`Due in less than a day: ${when}`), hour: stop(`Due in less than an hour: ${when}`), past: `The due date (${when}) has passed.` }[hit[0]];
   const extra = hit[0] === 'past' ? ' You can still save and upload your file; your instructor will see when it was written.' : ` ${todo}`;
   const box = $('#due-banner');
   box.innerHTML = '';
@@ -1504,7 +1505,7 @@ function readiness(file, F) {
   if (config.due) {
     const due = new Date(config.due);
     const when = due.toLocaleString(undefined, { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-    items.push(due > Date.now() ? { ok: true, text: `Due ${when}.` }
+    items.push(due > Date.now() ? { ok: true, text: when.endsWith('.') ? `Due ${when}` : `Due ${when}.` }
       : { ok: 'warn', text: `The due date (${when}) has passed. You can still upload your file; your instructor will see when it was written.` });
   }
   if (rec.unstamped().length) items.push({ ok: 'warn', text: 'Some of your latest work is still waiting for a timestamp. Stay online for a minute before saving.' });
