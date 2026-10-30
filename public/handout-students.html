@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https:; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Writing in Draftwork</title>
+  <script>try{var a=JSON.parse(localStorage.getItem('draftwork.appearance')||'{}');if(a.theme&&a.theme!=='system')document.documentElement.dataset.theme=a.theme;if(a.size&&a.size!=='normal')document.documentElement.dataset.size=a.size}catch(e){}</script>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="handout-bar no-print">
+    <a class="btn small ghost" href="help.html#students">← Help</a>
+    <span class="spacer"></span>
+    <button class="btn small primary" type="button" id="print-btn">Print this page</button>
+  </div>
+  <main class="handout">
+    <h1>Writing your assignment in Draftwork</h1>
+    <p class="lead">Draftwork is a word processor that records how your writing comes together. You write in it like in Word, then upload one file to your course.</p>
+
+    <h2>Start</h2>
+    <ol>
+      <li>Open the <strong>link your instructor posted</strong> in your course site. Use <strong>Chrome or Edge</strong> on a computer.</li>
+      <li>Type your <strong>name and student number</strong>. Check them carefully: they can’t be changed later.</li>
+      <li>Read what’s recorded, tick the box, and click <strong>Start</strong>.</li>
+    </ol>
+
+    <h2>Write</h2>
+    <ul>
+      <li>Write as you normally would. Your draft is kept on that computer as you go; you can close the page and come back.</li>
+      <li>Stay connected to the internet while you write. If the connection drops, keep writing: your work is safe.</li>
+      <li>If pasting from other places is turned off, put quotes in the <strong>Sources</strong> panel on the right, then copy them into your writing from there.</li>
+    </ul>
+
+    <h2>When you’re finished: save, then upload</h2>
+    <ol>
+      <li>Click <strong>Save file to upload…</strong> (top right). A <strong>.draftwork</strong> file is saved, usually to your <strong>Downloads</strong> folder.</li>
+      <li>Upload that <strong>.draftwork</strong> file to the assignment’s dropbox in your course, the same way you’d upload a Word document.</li>
+      <li>Keep the <strong>receipt</strong> code Draftwork shows you.</li>
+    </ol>
+    <p class="callout"><strong>Saving doesn’t submit your assignment.</strong> It isn’t submitted until you upload the file. Upload the .draftwork file, not a Word document.</p>
+
+    <h2>Good to know</h2>
+    <ul>
+      <li><strong>Another computer?</strong> Save your file, then on the other computer open the same link and choose <strong>Continue from a file I saved…</strong></li>
+      <li><strong>Can’t find the saved file?</strong> Press <strong>Ctrl+J</strong> in Chrome or Edge to see your downloads.</li>
+      <li><strong>Before you upload,</strong> click <strong>Preview</strong> to check your word count and anything your instructor might ask about.</li>
+      <li><strong>Something not working?</strong> Save your file and contact your instructor.</li>
+    </ul>
+  </main>
+  <script>document.getElementById('print-btn').addEventListener('click', function () { window.print(); });</script>
+</body>
+</html>

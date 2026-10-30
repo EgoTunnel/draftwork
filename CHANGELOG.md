@@ -15,6 +15,7 @@ Draftwork follows [semantic versioning](https://semver.org/). The file format is
 - **Plainer connection status:** "Online", "Offline · keep writing" or "Practice assignment", and clicking it explains what's happening in words, without needing to hover. Connection errors say what to do.
 - **"Continue from a file I saved…"** moved up the start page, with a line explaining it, for students working on more than one computer.
 - **Plainer wording:** "a short code made from your progress (not your text)" instead of "fingerprint"; "What's recorded?" opens a visible explanation instead of a tooltip.
+- **Due-date reminders:** a banner a day before, an hour before, and after the due date, once each, saying what's left to do (save, then upload), with a save button.
 - **A simpler Preview:** a short check first (length, AI disclosure, due date, any flags to add a note to), with the instructor's full view one click away.
 
 ### For instructors
@@ -23,6 +24,9 @@ Draftwork follows [semantic versioning](https://semver.org/). The file format is
 - **Wrong files spotted:** when a course-site zip contains a Word document (or anything else) instead of a `.draftwork` file, the list names those students, so they aren't silently missing.
 - **First steps** on an empty Submissions page, with step 1 ticked once there's an assignment.
 - **No more "Unaltered\*":** the File column and report say the reason in words, such as "Unaltered · test timestamps".
+- **A simpler new-assignment form:** title, due date, dropbox link and pasting up front; the rest under "More options", which shows its current choices.
+- **Tidier assignment rows:** Instructions for students and Copy link, with the rest under "More".
+- **Printable one-page guides** for students and instructors, linked from Help, the Guide and the instructions panel.
 - **Detailed measurements folded away:** the signals table is under "Detailed measurements", and the writing-process graph has a visible one-line explanation of how to read it.
 - **A one-line summary at the top of each report** saying what to do, and the file checks fold into one line when everything passed.
 - **Spell check option:** a new assignment setting allows or turns off the browser's spelling and grammar suggestions.
@@ -52,6 +56,9 @@ Draftwork follows [semantic versioning](https://semver.org/). The file format is
 - **Sample class:** four students who misuse AI in different ways (retyping a chatbot answer from a phone, typing up a chatbot draft from another window, an "AI humaniser" auto-typing tool, and laundering a chatbot essay through the sources panel), each with an AI-use disclosure to compare against the record.
 - **Class comparisons hold up when several students cheat:** "Written unusually quickly" also flags anyone under a third of the class's typical time, and "Unnaturally even typing" compares against the class median, so a few outliers don't hide each other.
 - The AI-use question asks about what the student said AI was used for (drafting, editing, ideas or feedback).
+
+### Everyone
+- **Larger small print** throughout, and a new **Larger** text size in the appearance menu.
 
 ### Fixes
 - The "Where's this from?" prompt shows the pasted text cleanly over two lines.

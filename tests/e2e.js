@@ -316,7 +316,8 @@ try {
   // The OS clipboard is shared with the rest of the computer, so these tests use trusted
   // drag-and-drop, which goes through the same insertion path without touching it.
   await check('text from outside is blocked; a script-made paste is refused', async () => {
-    const box = await page.eval('(() => { const r = document.querySelector("#editor").lastChild.getBoundingClientRect(); return [r.right - 2, r.top + r.height / 2]; })()');
+    // The test window is small, so bring the last paragraph into view before dropping on it.
+    const box = await page.eval('(() => { const p = document.querySelector("#editor").lastChild; p.scrollIntoView({ block: "center" }); const r = p.getBoundingClientRect(); return [r.right - 2, r.top + r.height / 2]; })()');
     const data = { items: [{ mimeType: 'text/plain', data: 'Text from somewhere else entirely' }], dragOperationsMask: 1 };
     for (const type of ['dragEnter', 'dragOver', 'drop']) {
       await page.send('Input.dispatchDragEvent', { type, x: box[0], y: box[1], data });
@@ -487,6 +488,31 @@ try {
     await p.close(cdpPort);
   });
 
+  await check('a reminder appears once when the due date is near', async () => {
+    const soon = newConfig({ title: 'Due soon', allowDemoTsa: true, due: new Date(Date.now() + 30 * 60_000).toISOString() });
+    const p = await Page.open(cdpPort);
+    await p.goto(`${base}/student.html#a=${await encodeConfig(soon)}`);
+    await p.waitFor('!document.querySelector("#new-card").classList.contains("hidden")');
+    await p.eval(`document.querySelector('#label-input').value = 'Late Writer'; document.querySelector('#consent-input').checked = true; document.querySelector('#start-btn').click(); true`);
+    await confirmStart(p);
+    await p.waitFor('!document.querySelector("#due-banner").classList.contains("hidden")', 10000);
+    const text = await p.eval('document.querySelector("#due-banner").textContent');
+    assert(/Due in less than an hour/.test(text) && /save your file, then upload it to your course/.test(text) && !/less than a day/.test(text), text);
+    await p.eval(`document.querySelector('#due-banner .icon-btn').click(); true`);
+    assert(await p.eval('document.querySelector("#due-banner").classList.contains("hidden")'), 'not dismissed');
+    // Shown once: coming back to the draft doesn't bring it back.
+    await sleep(800); // let the draft be kept
+    await p.close(cdpPort);
+    const q = await Page.open(cdpPort);
+    await q.goto(`${base}/student.html#a=${await encodeConfig(soon)}`);
+    await q.waitFor('!document.querySelector("#resume-card").classList.contains("hidden")');
+    await q.eval(`document.querySelector('#resume-btn').click(); true`);
+    await q.waitFor('!document.querySelector("#screen-writer").classList.contains("hidden")');
+    await sleep(500);
+    assert(await q.eval('document.querySelector("#due-banner").classList.contains("hidden")'), 'reminder shown again');
+    await q.close(cdpPort);
+  });
+
   await check('instructor: backup, wipe the browser, restore', async () => {
     const dl = await mkdtemp(join(tmpdir(), 'draftwork-dl-'));
     const p = await Page.open(cdpPort);
@@ -553,7 +579,8 @@ try {
     assert(await p.eval(`JSON.parse(localStorage.getItem('draftwork.notes'))['abc:someone'].prompts[1].answer === 'Office answer'`), 'notes not merged');
 
     // Removing an assignment is saved too, so it doesn't come back from the folder.
-    await p.eval(`window.confirm = () => true; [...document.querySelectorAll('#assign-list .assign-row')].find((r) => r.textContent.includes('From my office')).querySelector('button:last-of-type').click(); true`);
+    await p.eval(`window.confirm = () => true; [...document.querySelectorAll('#assign-list .assign-row')].find((r) => r.textContent.includes('From my office')).querySelector('.assign-more').click(); true`);
+    await p.eval(`[...document.querySelectorAll('.menu-item')].find((b) => /Remove from this browser/.test(b.textContent)).click(); true`);
     await p.waitFor(`(${readBackup}).then((b) => b && !b.assignments.some((a) => a.config.title === 'From my office') && Object.keys(b.removed || {}).length === 1)`, 10000);
     await p.goto(`${base}/instructor.html`);
     await p.eval(`document.querySelector('#tab-assign').click(); true`);

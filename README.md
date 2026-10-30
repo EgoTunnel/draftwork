@@ -75,7 +75,9 @@ No dependencies; Node 20+.
 - **Document tab / Read:** the submitted document as formatted, to copy, download or print.
 - **Export:** a spreadsheet of the class, with names or **anonymised for calibrating thresholds**.
 
-**Every page:** a theme menu (system, light, dark, sepia, high contrast), text size, tooltips explaining options, keyboard-navigable toolbar, and screen-reader announcements for formatting.
+**Every page:** a theme menu (system, light, dark, sepia, high contrast), four text sizes, tooltips explaining options, keyboard-navigable toolbar, and screen-reader announcements for formatting.
+
+**Printable one-page guides:** `handout-students.html` and `handout-instructors.html`, for posting or handing out.
 
 ## Run it
 

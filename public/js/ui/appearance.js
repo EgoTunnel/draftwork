@@ -5,7 +5,7 @@ import { popover } from './menu.js';
 
 const KEY = 'draftwork.appearance';
 export const THEMES = { system: 'System', light: 'Light', dark: 'Dark', sepia: 'Sepia', contrast: 'High contrast' };
-export const SIZES = { small: 'Small', normal: 'Default', large: 'Large' };
+export const SIZES = { small: 'Small', normal: 'Default', large: 'Large', xlarge: 'Larger' };
 
 export function getAppearance() {
   try {
@@ -57,7 +57,7 @@ export function appearanceButton() {
     const a = getAppearance();
     popover(btn, h('div', { class: 'appearance-pop' },
       segmented('Theme', THEMES, a.theme, (theme) => setAppearance({ theme }), { system: 'Follow your computer’s light or dark setting' }),
-      segmented('Text size', SIZES, a.size, (size) => setAppearance({ size }), { small: 'Smaller text throughout the app', large: 'Larger text throughout the app' }),
+      segmented('Text size', SIZES, a.size, (size) => setAppearance({ size }), { small: 'Smaller text throughout the app', large: 'Larger text throughout the app', xlarge: 'Much larger text throughout the app' }),
     ));
   });
   return btn;

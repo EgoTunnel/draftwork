@@ -877,6 +877,39 @@ function updateDue() {
   el.textContent = `Due ${when} (${rel})`;
   el.className = left < 0 ? 'bad-text' : left < 86_400_000 ? 'warn-text' : 'muted';
   el.dataset.tip = left < 0 ? 'The due date has passed. You can still write; your instructor will see when each part was written.' : 'The due date set by your instructor';
+  dueNudge(left, due);
+}
+
+// A reminder once a day before the due date, once an hour before, and once after it, each
+// saying what's left to do. Shown once per draft, and easy to dismiss.
+const NUDGES = [['past', 0], ['hour', 3600_000], ['day', 86_400_000]];
+function dueNudge(left, due) {
+  const key = `draftwork.nudged:${cfgHash}`;
+  let seen = [];
+  try {
+    seen = JSON.parse(localStorage.getItem(key) || '[]');
+  } catch { /* not kept */ }
+  const hit = NUDGES.find(([, ms]) => left < ms);
+  if (!hit || seen.includes(hit[0])) return;
+  // Mark this one and any less urgent ones as shown, so a late start doesn't stack reminders.
+  for (const [k, ms] of NUDGES) if (ms >= hit[1] && !seen.includes(k)) seen.push(k);
+  try {
+    localStorage.setItem(key, JSON.stringify(seen));
+  } catch { /* not kept */ }
+  const when = due.toLocaleString(undefined, { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const todo = !lastFileSave || unsavedToFile()
+    ? 'When you’re finished, save your file, then upload it to your course.'
+    : 'Your file is saved. Remember to upload it to your course.';
+  const head = { day: `Due in less than a day: ${when}.`, hour: `Due in less than an hour: ${when}.`, past: `The due date (${when}) has passed.` }[hit[0]];
+  const extra = hit[0] === 'past' ? ' You can still save and upload your file; your instructor will see when it was written.' : ` ${todo}`;
+  const box = $('#due-banner');
+  box.innerHTML = '';
+  box.className = `due-banner ${hit[0] === 'day' ? 'warn' : 'bad'}`;
+  box.append(
+    h('span', null, h('strong', null, head), extra),
+    h('span', { class: 'spacer' }),
+    h('button', { class: 'btn small primary', type: 'button', onclick: () => { box.classList.add('hidden'); saveNow(); } }, 'Save file to upload…'),
+    h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Dismiss', 'data-tip': 'Dismiss', onclick: () => box.classList.add('hidden') }, '✕'));
 }
 setInterval(() => rec && rec.inSession && updateDue(), 30_000);
 

@@ -396,18 +396,28 @@ function renderLibrary() {
           onclick: (e) => showInstructions(e.currentTarget, a),
         }, 'Instructions for students'),
         h('button', { class: 'btn small', type: 'button', 'data-tip': `Copy just the link:\n${link}`, onclick: () => copyText(link) }, 'Copy link'),
-        h('button', { class: 'btn small ghost', type: 'button', 'data-tip': 'Copy the short code (students can paste it instead of the link)', onclick: () => copyText(a.code) }, 'Code'),
-        h('a', { class: 'btn small ghost', href: link, target: '_blank', rel: 'noopener', 'data-tip': 'Open the student page for this assignment in a new tab' }, 'Try'),
         h('button', {
-          class: 'btn small ghost', type: 'button', 'data-tip': 'Remove from this browser',
-          onclick: () => {
-            if (!confirm(`Remove "${c.title}" from this browser? You can import its code again later.`)) return;
-            library = library.filter((x) => x !== a);
-            if (!a.demo) saveRemoved({ ...loadRemoved(), [a.hash]: new Date().toISOString() });
-            saveLibrary(library);
-            renderLibrary();
+          class: 'btn small ghost assign-more', type: 'button', 'aria-haspopup': 'menu', 'data-tip': 'More: copy the short code, try it as a student, or remove',
+          onclick: (e) => {
+            const item = (label, tip, fn) => h('button', {
+              class: 'menu-item', type: 'button', 'data-tip': tip,
+              onclick: () => {
+                closePopover();
+                fn();
+              },
+            }, h('span'), h('span', { class: 'menu-label' }, label), h('span'));
+            popover(e.currentTarget, h('div', { class: 'menu', role: 'menu' },
+              item('Copy the short code', 'Students can paste the code instead of the link', () => copyText(a.code)),
+              item('Try it as a student', 'Open the student page for this assignment in a new tab', () => window.open(link, '_blank', 'noopener')),
+              item('Remove from this browser', 'You can add it again later from its code or link', () => {
+                if (!confirm(`Remove "${c.title}" from this browser? You can add it again later from its code or link.`)) return;
+                library = library.filter((x) => x !== a);
+                if (!a.demo) saveRemoved({ ...loadRemoved(), [a.hash]: new Date().toISOString() });
+                saveLibrary(library);
+                renderLibrary();
+              })), { align: 'right' });
           },
-        }, 'Remove')),
+        }, 'More ▾')),
       h('div', { class: 'small muted' }, pol)));
   }
 }
@@ -442,12 +452,28 @@ function showInstructions(anchor, a) {
   ta.value = studentInstructions(a);
   popover(anchor, h('div', { class: 'share-pop stack instructions-pop' },
     h('strong', null, 'Instructions for students'),
-    h('div', { class: 'small muted' }, 'Paste this into the assignment in your course site. In the dropbox settings, allow .draftwork files (or all file types).'),
+    h('div', { class: 'small muted' }, 'Paste this into the assignment in your course site. In the dropbox settings, allow .draftwork files (or all file types). ', h('a', { href: 'handout-students.html', target: '_blank', rel: 'noopener' }, 'Printable handout for students')),
     ta,
     h('div', { class: 'row' },
       h('button', { class: 'btn small primary', type: 'button', onclick: () => { copyText(ta.value); closePopover(); } }, 'Copy instructions'),
       h('button', { class: 'btn small ghost', type: 'button', onclick: closePopover }, 'Close'))), { align: 'right' });
 }
+
+// "More options" shows its current choices, so the defaults are visible without opening it.
+function updateMoreSummary() {
+  const min = $('#f-min').value;
+  const max = $('#f-max').value;
+  $('#f-more-sum').textContent = `· ${[
+    $('#f-sources').checked ? 'sources panel' : 'no sources panel',
+    min || max ? `${min || 0}–${max || 'any'} words` : 'any length',
+    $('#f-spelling').checked ? 'spell check on' : 'spell check off',
+    $('#f-ai').checked ? 'AI question' : 'no AI question',
+    $('#f-demo').checked ? 'test assignment' : null,
+  ].filter(Boolean).join(', ')}`;
+}
+$('#new-form').addEventListener('input', updateMoreSummary);
+$('#new-form').addEventListener('change', updateMoreSummary);
+updateMoreSummary();
 
 // thresholds form
 const thBox = $('#f-thresholds');
@@ -494,7 +520,8 @@ $('#new-form').addEventListener('submit', async (ev) => {
   renderLibrary();
   $('#new-form').reset();
   for (const [k, v] of Object.entries(DEFAULT_THRESHOLDS)) $(`#th-${k}`).value = v;
-  presetDemo();
+  presetDemo().then(updateMoreSummary);
+  updateMoreSummary();
   toast(folder && folder.ok
     ? `Created "${config.title}" and backed it up to “${folder.dir.name}”. Use Instructions for students to give them the link and steps.`
     : `Created "${config.title}". Use Instructions for students to give them the link and steps, and Download backup to keep it safe.`, 8000);
@@ -525,7 +552,7 @@ async function presetDemo() {
     $('#f-demo').closest('label').dataset.tip = 'This server is running the offline demo timestamp service, so test assignments must accept demo timestamps.';
   }
 }
-presetDemo();
+presetDemo().then(updateMoreSummary);
 
 $('#import-btn').addEventListener('click', async () => {
   try {
