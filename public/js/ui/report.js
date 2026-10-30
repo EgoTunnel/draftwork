@@ -153,7 +153,12 @@ async function copyDoc(doc) {
 
 // opts.notes: { get(), set(notes) } for the instructor's check-in notes (this browser only).
 // opts.fileInfo: { fingerprint, lms: { lms, name } }. opts.onFlagNote(id, text): the student's own responses.
-export function renderReport(root, F, { mode = 'instructor', tab = 'overview', onTab = null, notes = null, fileInfo = null, onFlagNote = null } = {}) {
+// opts.simple (student preview): readiness items [{ ok: true|'warn'|false, text }] and flags only,
+// with a button calling opts.onFull for the instructor's full view.
+export function renderReport(root, F, {
+  mode = 'instructor', tab = 'overview', onTab = null, notes = null, fileInfo = null, onFlagNote = null,
+  simple = false, readiness = null, onFull = null,
+} = {}) {
   root.innerHTML = '';
   const N0 = notes ? { prompts: {}, flags: {}, summary: '', ...notes.get() } : null;
   const saveNotes = debounce(() => notes && notes.set({ ...N0, updated: new Date().toISOString() }), 400);
@@ -237,14 +242,39 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
       onclick: () => printSummary(F, N0, fileInfo), html: `${ICONS.print}<span>Print summary</span>`,
     }) : '');
 
+  // ---------- summary: one sentence saying what to do ----------
+  const verdict = (() => {
+    const n = F.flags.length;
+    const flagWord = `${n} flag${n === 1 ? '' : 's'}`;
+    if (mode === 'student') {
+      if (failing) return ['bad', 'Something is wrong with this draft’s record. Save your file and contact your instructor before uploading it.'];
+      if (F.level === 'none') return ['ok', 'Nothing unusual in how this was written.'];
+      return ['warn', `${flagWord} below. Your instructor may ask about ${n === 1 ? 'it' : 'them'}; you can add a note to explain.`];
+    }
+    if (failing) return ['bad', 'This file was changed after it was written, so its record can’t be trusted. Ask the student how they saved and uploaded it.'];
+    if (F.level === 'major') return ['bad', `${flagWord}, including ${F.flags.some((f) => f.severity === 'major') ? 'major ones' : 'several together'}. Worth a short conversation; the questions below are ready to ask.`];
+    if (F.level === 'minor') return ['warn', `${flagWord}, minor. Probably worth a quick question; see below.`];
+    return ['ok', 'No flags. Nothing unusual in how this was written. That isn’t a verdict on its own; skim the replay if you like.'];
+  })();
+  const summary = h('p', { class: `verdict ${verdict[0]}`, role: 'status' }, verdict[1]);
+
   // ---------- overview: integrity ----------
-  const l1 = h('section', { class: 'card', id: 'layer-integrity' },
-    sectionHead('File integrity', 'Pass/fail checks that the file wasn’t altered and was written in Draftwork. A failure means the file was changed or built outside the app.'),
-    h('p', { class: 'small muted', style: 'margin:-4px 0 8px' }, 'These checks confirm the file is an unaltered Draftwork record. They don’t show who wrote it or how; that’s what the flags below are for.'),
+  // All passed: one line that opens to the details. Anything failed: everything shown.
+  const checkList = [
+    h('p', { class: 'small muted', style: 'margin:4px 0 8px' }, 'These checks confirm the file is an unaltered Draftwork record. They don’t show who wrote it or how; that’s what the flags below are for.'),
     h('ul', { class: 'checks' }, F.integrity.map((c) => h('li', null,
       h('span', { class: `mark ${c.status}`, 'aria-label': STATUS_TEXT[c.status], 'data-tip': STATUS_TEXT[c.status] }, STATUS_MARK[c.status]),
       h('span', { 'data-tip': c.tip || null }, c.label),
       h('span', { class: 'detail' }, c.detail)))),
+  ];
+  const noteCount = F.integrity.length - passing;
+  const l1 = h('section', { class: 'card', id: 'layer-integrity' },
+    sectionHead('File integrity', 'Pass/fail checks that the file wasn’t altered and was written in Draftwork. A failure means the file was changed or built outside the app.'),
+    failing ? checkList : h('details', { class: 'checks-fold' },
+      h('summary', null, h('span', { class: 'mark pass', 'aria-hidden': 'true' }, '✓'),
+        h('span', { class: 'fold-title' }, noteCount ? `File unaltered, with ${noteCount === 1 ? 'a note' : `${noteCount} notes`}` : 'File unaltered'),
+        h('span', { class: 'fold-detail' }, noteCount ? F.integrity.filter((c) => c.status !== 'pass').map((c) => c.detail).join(' ') : `All ${F.integrity.length} checks passed. Click for details.`)),
+      checkList),
   );
 
   // ---------- overview: flags ----------
@@ -281,7 +311,7 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
         })(),
       ))
       : h('p', { class: 'empty-state' }, 'No flags.'),
-    !F.classOn && h('p', { class: 'small muted', style: 'margin:10px 0 0', 'data-tip': 'The “too fast” and “machine-regular rhythm” flags compare against the class, so they need enough submissions.' },
+    !F.classOn && mode !== 'student' && h('p', { class: 'small muted', style: 'margin:10px 0 0', 'data-tip': 'The “written unusually quickly” and “unnaturally even typing” flags compare against the class, so they need enough submissions.' },
       `Class comparison flags: ${F.cohortSize} of ${F.T.min_class_size} submissions loaded.`),
   );
 
@@ -552,7 +582,20 @@ export function renderReport(root, F, { mode = 'instructor', tab = 'overview', o
       })));
   }
 
-  root.append(banner || '', head, tabs, panels.overview, panels.document,
+  if (simple) {
+    // The student's check before saving: is it ready, and what might they be asked about.
+    const ready = h('section', { class: 'card', id: 'readiness' },
+      sectionHead('Before you save and upload'),
+      h('ul', { class: 'checks' }, (readiness || []).map((r) => h('li', null,
+        h('span', { class: `mark ${{ true: 'pass', warn: 'warn', info: 'info' }[r.ok] || 'fail'}`, 'aria-hidden': 'true' }, r.ok === true ? '✓' : r.ok === 'info' ? '→' : '!'),
+        h('span', null, r.text)))));
+    root.append(head, summary, ready, l2,
+      h('div', { class: 'row', style: 'margin-top:16px' },
+        h('button', { class: 'btn', type: 'button', onclick: onFull, 'data-tip': 'The full page your instructor sees, with the file checks, the writing process and a replay' }, 'See exactly what your instructor sees')));
+    select('overview');
+    return { seek, destroy: stop, select };
+  }
+  root.append(banner || '', head, summary, tabs, panels.overview, panels.document,
     h('footer', { class: 'policy-footer' }, POLICY_FOOTER));
   select(tab);
   render(idx);

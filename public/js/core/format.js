@@ -71,7 +71,7 @@ export const THRESHOLD_LABELS = {
 
 export function newConfig({
   title, paste = 'block', sourcesPane = true, wordsMin = null, wordsMax = null, tsaUrl = '/tsa', thresholds = {},
-  allowDemoTsa = false, tsaAnchors = [], due = null, aiDisclosure = false, spelling = true,
+  allowDemoTsa = false, tsaAnchors = [], due = null, aiDisclosure = false, spelling = true, submitUrl = null,
 }) {
   const config = {
     v: 1,
@@ -93,7 +93,20 @@ export function newConfig({
   if (due) config.due = due;
   if (aiDisclosure) config.ai_disclosure = true;
   if (!spelling) config.policy.spelling = false; // the browser's built-in spelling and grammar suggestions
+  const url = safeUrl(submitUrl);
+  if (url) config.submit_url = url; // where students upload the file, e.g. the course site's dropbox
   return config;
+}
+
+// An http(s) link, or null. Links from an assignment code are shown to students, so nothing else is allowed.
+export function safeUrl(s) {
+  if (!s) return null;
+  try {
+    const u = new URL(String(s).trim());
+    return u.protocol === 'https:' || u.protocol === 'http:' ? u.href : null;
+  } catch {
+    return null;
+  }
 }
 
 export const thresholdsFor = (config) => ({ ...DEFAULT_THRESHOLDS, ...((config && config.thresholds) || {}) });

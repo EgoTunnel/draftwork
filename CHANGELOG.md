@@ -9,7 +9,15 @@ Draftwork follows [semantic versioning](https://semver.org/). The file format is
 - **Font and size for selected text** from the toolbar, as in Word. The document's default moved to Format → Default font.
 - **Header and page numbers** (Format): header text such as your last name, with page numbers top right (MLA), bottom centre, or none. Shown on the page, in print and in Word export.
 
+- **Saving, then uploading, made unmistakable:** "Save file to upload…" saves the file and shows where it went, the upload step (with a button for the course dropbox when there is one), and the receipt. It says plainly that saving doesn't submit the assignment. The status bar reads "Draft kept on this computer" and "File saved 9:52 · remember to upload it", and never claims the work was submitted. The Word export is labelled "not for submitting".
+- **A simpler Preview:** a short check first (length, AI disclosure, due date, any flags to add a note to), with the instructor's full view one click away.
+
 ### For instructors
+- **Instructions for students:** each assignment has a ready-to-paste text for the course site with the link and the steps, in the same words students see in Draftwork.
+- **Course dropbox link** (optional) on a new assignment: students get a button to open it after saving, and it's in the instructions.
+- **Wrong files spotted:** when a course-site zip contains a Word document (or anything else) instead of a `.draftwork` file, the list names those students, so they aren't silently missing.
+- **First steps** on an empty Submissions page.
+- **A one-line summary at the top of each report** saying what to do, and the file checks fold into one line when everything passed.
 - **Spell check option:** a new assignment setting allows or turns off the browser's spelling and grammar suggestions.
 - **Clearer flags:** every flag has a plain-language title and explanation, with the measurements and thresholds in a smaller line beneath. For example, "Transcription stretch" is now "Typed straight through, like copying".
 - **Integrity failures explained:** each failure names what was changed (for example "Submitted text doesn't match its history" or "Student name or start time was changed"), quotes the submitted and recorded versions where they differ, and says when in the writing it happened, with a button to jump there.

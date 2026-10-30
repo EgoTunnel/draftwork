@@ -508,6 +508,32 @@ details summary { cursor: pointer; font-weight: 550; }
 .mark.fail { background: var(--bad-soft); color: var(--bad); }
 .mark.warn, .mark.unknown { background: var(--warn-soft); color: var(--warn); }
 .checks .detail { grid-column: 2; font-size: .85rem; color: var(--muted); }
+.mark.info { background: var(--accent-soft); color: var(--accent); }
+
+/* One-sentence summary at the top of a report */
+.verdict { margin: 0 0 16px; padding: 10px 14px; border-radius: 6px; border-left: 4px solid; font-size: 1rem; }
+.verdict.ok { background: var(--ok-soft); border-color: var(--ok); }
+.verdict.warn { background: var(--warn-soft); border-color: var(--warn); }
+.verdict.bad { background: var(--bad-soft); border-color: var(--bad); }
+
+/* File integrity, folded to one line when everything passed */
+.checks-fold > summary { display: grid; grid-template-columns: 26px 1fr; gap: 2px 8px; align-items: center; cursor: pointer; padding: 4px 0; list-style: none; }
+.checks-fold > summary::-webkit-details-marker { display: none; }
+.checks-fold > summary .fold-detail { grid-column: 2; font-size: .85rem; font-weight: 400; color: var(--muted); }
+.checks-fold[open] > summary .fold-detail { display: none; }
+.checks-fold > summary .mark { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: .75rem; font-weight: 700; }
+
+/* Student: save, then upload */
+.save-steps { margin: 0; padding-left: 22px; display: grid; gap: 12px; }
+.save-steps li.done::marker { color: var(--ok); font-weight: 700; }
+.save-steps .file-name { font-family: var(--mono); font-size: .85rem; word-break: break-all; margin: 4px 0 2px; padding: 4px 8px; background: var(--surface-2); border-radius: 4px; }
+.save-steps .receipt { font-size: 1rem; padding: 6px 10px; }
+#receipt-dropbox:not(:empty) { margin-top: 6px; }
+
+/* Instructor: instructions for students, and first steps */
+.instructions-pop { max-width: 520px; width: min(520px, 92vw); }
+.instructions-text { width: 100%; font-size: .85rem; line-height: 1.45; resize: vertical; }
+.empty-steps { margin: 14px 0 0; padding-left: 20px; color: var(--muted); display: grid; gap: 4px; }
 
 .flag { border: 1px solid var(--border); border-left: 4px solid var(--warn); border-radius: 6px; padding: 12px 14px; background: var(--surface); }
 .flag.integrity, .flag.major { border-left-color: var(--bad); }

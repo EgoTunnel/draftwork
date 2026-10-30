@@ -123,8 +123,21 @@ try {
   await shot(`student-editor${sfx}`);
 
   await evaluate(`document.querySelector('#preview-btn').click(); true`);
-  await waitFor('document.querySelectorAll("#preview-body .checks li").length === 5');
+  await waitFor('document.querySelector("#preview-body #readiness")');
   await shot(`student-preview${sfx}`);
+  if (args.includes('--extra')) {
+    // The save panel: saved, then upload.
+    await evaluate(`document.querySelector('#preview-close').click(); document.querySelector('#save-btn').click(); true`);
+    await waitFor('document.querySelector("#receipt-dlg").open || document.querySelector("#notes-dlg").open', 30000);
+    if (await evaluate('document.querySelector("#notes-dlg").open')) {
+      await evaluate(`document.querySelector('#ai-used').value = 'none'; document.querySelector('#notes-dlg').close(); true`);
+      await new Promise((r) => setTimeout(r, 300));
+      await evaluate(`document.querySelector('#save-btn').click(); true`);
+      await waitFor('document.querySelector("#receipt-dlg").open', 30000);
+    }
+    await shot(`student-save${sfx}`);
+    await evaluate(`document.querySelector('#receipt-dlg').close(); true`);
+  }
 
   // Instructor: the sample class, a flagged report, and the document view.
   await go(`${base}/instructor.html#demo`);

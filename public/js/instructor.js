@@ -390,7 +390,11 @@ function renderLibrary() {
       h('div', { class: 'row' },
         h('strong', null, c.title), a.demo && h('span', { class: 'pill', 'data-tip': 'Added with the demo class' }, 'demo'),
         h('span', { class: 'spacer' }),
-        h('button', { class: 'btn small', type: 'button', 'data-tip': `Copy the link to give students:\n${link}`, onclick: () => copyText(link) }, 'Copy link'),
+        h('button', {
+          class: 'btn small primary', type: 'button', 'data-tip': 'Instructions with the link and the steps for saving and uploading, ready to paste into your course site',
+          onclick: (e) => showInstructions(e.currentTarget, a),
+        }, 'Instructions for students'),
+        h('button', { class: 'btn small', type: 'button', 'data-tip': `Copy just the link:\n${link}`, onclick: () => copyText(link) }, 'Copy link'),
         h('button', { class: 'btn small ghost', type: 'button', 'data-tip': 'Copy the short code (students can paste it instead of the link)', onclick: () => copyText(a.code) }, 'Code'),
         h('a', { class: 'btn small ghost', href: link, target: '_blank', rel: 'noopener', 'data-tip': 'Open the student page for this assignment in a new tab' }, 'Try'),
         h('button', {
@@ -405,6 +409,43 @@ function renderLibrary() {
         }, 'Remove')),
       h('div', { class: 'small muted' }, pol)));
   }
+}
+
+// Plain instructions for students, to paste into the course site. They use the same words as
+// Draftwork itself ("Save file to upload", "upload it to your course").
+function studentInstructions(a) {
+  const c = a.config;
+  const due = c.due ? new Date(c.due).toLocaleString(undefined, { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null;
+  const where = c.submit_url ? `to this assignment’s dropbox: ${c.submit_url}` : 'to this assignment’s dropbox in our course site';
+  return [
+    `${c.title}: writing in Draftwork`,
+    '',
+    `Write this assignment in Draftwork, a word processor that records how your writing comes together. Open it here: ${studentLink(a.code)}`,
+    due ? `Due ${due}.` : null,
+    '',
+    '1. Open the link in Chrome or Edge on a computer. Enter your name and student number (check them carefully: they can’t be changed later), then start writing. Your draft is kept on that computer as you go.',
+    '2. When you’re finished, click “Save file to upload…”. This saves a .draftwork file to your Downloads folder.',
+    `3. Upload that .draftwork file ${where}, the same way you’d upload a Word document. Saving doesn’t submit your assignment: it isn’t submitted until you upload the file.`,
+    '4. Keep the receipt Draftwork shows you after saving.',
+    '',
+    c.policy.paste === 'block'
+      ? `Pasting text from other places is turned off.${c.policy.sources_pane ? ' To quote a source, paste it into the Sources panel on the right, then copy it into your writing from there.' : ''}`
+      : null,
+    'Working on another computer? Save your file, then on the other computer open the link above and choose “Open saved file…” to keep writing.',
+    'Please upload only the .draftwork file, not a Word document. If something isn’t working, save your file and contact me.',
+  ].filter((l) => l !== null).join('\n');
+}
+
+function showInstructions(anchor, a) {
+  const ta = h('textarea', { rows: 14, readonly: true, 'aria-label': 'Instructions for students', class: 'instructions-text' });
+  ta.value = studentInstructions(a);
+  popover(anchor, h('div', { class: 'share-pop stack instructions-pop' },
+    h('strong', null, 'Instructions for students'),
+    h('div', { class: 'small muted' }, 'Paste this into the assignment in your course site. In the dropbox settings, allow .draftwork files (or all file types).'),
+    ta,
+    h('div', { class: 'row' },
+      h('button', { class: 'btn small primary', type: 'button', onclick: () => { copyText(ta.value); closePopover(); } }, 'Copy instructions'),
+      h('button', { class: 'btn small ghost', type: 'button', onclick: closePopover }, 'Close'))), { align: 'right' });
 }
 
 // thresholds form
@@ -445,6 +486,7 @@ $('#new-form').addEventListener('submit', async (ev) => {
     due: dueVal ? new Date(dueVal).toISOString() : null,
     aiDisclosure: $('#f-ai').checked,
     spelling: $('#f-spelling').checked,
+    submitUrl: $('#f-submit').value,
   });
   if (picking) await picking;
   await addToLibrary(config);
@@ -453,8 +495,8 @@ $('#new-form').addEventListener('submit', async (ev) => {
   for (const [k, v] of Object.entries(DEFAULT_THRESHOLDS)) $(`#th-${k}`).value = v;
   presetDemo();
   toast(folder && folder.ok
-    ? `Created "${config.title}" and backed it up to “${folder.dir.name}”. Use Copy link to share it with students.`
-    : `Created "${config.title}". Use Copy link to share it with students, and Download backup to keep it safe.`, 7000);
+    ? `Created "${config.title}" and backed it up to “${folder.dir.name}”. Use Instructions for students to give them the link and steps.`
+    : `Created "${config.title}". Use Instructions for students to give them the link and steps, and Download backup to keep it safe.`, 8000);
   reanalyze();
 });
 
@@ -511,6 +553,7 @@ $('#tab-assign').addEventListener('click', () => showTab('assign'));
 // ---------- submissions ----------
 
 let loaded = []; // { key, name, A }
+let otherFiles = []; // files in an LMS zip that aren't .draftwork: { path, name, lms }
 let current = null;
 
 const normLabel = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -594,7 +637,14 @@ async function addFiles(entries) {
     if (isZip(e.bytes)) {
       status.textContent = `Opening ${e.name}…`;
       try {
-        const inner = (await readZip(e.bytes)).filter((x) => /\.draftwork$/i.test(x.name));
+        const all = await readZip(e.bytes);
+        const inner = all.filter((x) => /\.draftwork$/i.test(x.name));
+        // Anything else a student uploaded (a Word document, say) would otherwise vanish silently.
+        for (const x of all) {
+          if (/\.draftwork$/i.test(x.name) || /(^|\/)(index\.html?|\.DS_Store|Thumbs\.db)$|(^|\/)__MACOSX\//i.test(x.name)) continue;
+          const name = x.name.split('/').pop();
+          if (!otherFiles.some((o) => o.path === x.name)) otherFiles.push({ path: x.name, name, lms: lmsName(x.name) });
+        }
         if (!inner.length) errors.push(`${e.name}: no .draftwork files inside`);
         files.push(...inner);
       } catch (err) {
@@ -661,10 +711,47 @@ function groupsOf() {
   return groups;
 }
 
+// A file's name as the student gave it, without the course site's prefix, and what kind it is.
+function plainFileName(name) {
+  const base = name
+    .replace(/^\d+-\d+ - .+? - [A-Z][a-z]{2} \d{1,2}, \d{4} \d{3,4} [AP]M - /, '') // Brightspace
+    .replace(/^.*?_attempt_\d{4}-\d\d-\d\d-\d\d-\d\d-\d\d_/, '') // Blackboard
+    .replace(/^[a-z][a-z-]*?(?:_late)?_\d+_\d+_/i, ''); // Canvas
+  const ext = (base.match(/\.([a-z0-9]+)$/i) || [])[1] || '';
+  const kind = { docx: 'a Word document', doc: 'a Word document', pdf: 'a PDF', txt: 'a text file', odt: 'an OpenOffice document', pages: 'a Pages document', rtf: 'a rich text file' }[ext.toLowerCase()];
+  return kind ? `${base} (${kind})` : base;
+}
+
+// Students whose upload contained other files and no .draftwork file at all.
+function wrongFilesNotice() {
+  const withDraftwork = new Set(loaded.map((x) => x.lms && x.lms.name && normLabel(x.lms.name)).filter(Boolean));
+  const byStudent = new Map();
+  for (const o of otherFiles) {
+    const who = o.lms && o.lms.name ? o.lms.name : '';
+    if (who && withDraftwork.has(normLabel(who))) continue;
+    const key = who ? normLabel(who) : o.path;
+    if (!byStudent.has(key)) byStudent.set(key, { who, names: [] });
+    byStudent.get(key).names.push(plainFileName(o.name));
+  }
+  if (!byStudent.size) return null;
+  const list = [...byStudent.values()];
+  const named = list.filter((s) => s.who).length;
+  return h('div', { class: 'notice warn', style: 'margin-bottom:16px', role: 'status' },
+    h('strong', null, named === list.length
+      ? `${list.length} student${list.length === 1 ? '' : 's'} uploaded other files instead of a Draftwork file, so they aren’t listed below.`
+      : `${list.length} upload${list.length === 1 ? '' : 's'} contained other files instead of a Draftwork file, so ${list.length === 1 ? 'it isn’t' : 'they aren’t'} listed below.`),
+    h('ul', { class: 'small', style: 'margin:6px 0' }, list.slice(0, 30).map((s) => h('li', null, s.who ? h('strong', null, s.who) : null, s.who ? ': ' : '', s.names.join(', ')))),
+    list.length > 30 ? h('div', { class: 'small' }, `and ${list.length - 30} more.`) : null,
+    h('div', { class: 'small' }, 'Ask them to use “Save file to upload…” in Draftwork and upload the .draftwork file it saves (not a Word document).'));
+}
+
 function renderGroups() {
   const box = $('#groups');
   box.innerHTML = '';
+  $('#empty-hint').classList.toggle('hidden', loaded.length > 0 || otherFiles.length > 0);
   const known = knownHashes();
+  const wrong = wrongFilesNotice();
+  if (wrong) box.append(wrong);
   if (loaded.length) {
     const sortSel = h('select', { 'aria-label': 'Sort submissions', 'data-tip': 'Order of the submissions in each class. Previous and Next follow it.' },
       Object.entries(SORTS).map(([k, [label]]) => h('option', { value: k, selected: sortBy === k }, label)));
@@ -876,6 +963,7 @@ $('#export-csv').addEventListener('click', (e) => {
 
 $('#clear-files').addEventListener('click', () => {
   loaded = [];
+  otherFiles = [];
   finalCache.clear();
   renderGroups();
   $('#load-status').textContent = '';

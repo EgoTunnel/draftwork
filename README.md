@@ -46,7 +46,8 @@ No dependencies; Node 20+.
 - **Recording:**
   - Every change is recorded.
   - Checkpoints are stamped by an approved RFC 3161 service every 60 s of activity.
-  - **Save file** writes the `.draftwork` file for the LMS and shows a **receipt** (a fingerprint of the file).
+  - **Save file to upload…** saves the `.draftwork` file and opens a short panel: where the file went, upload it to your course (with a button for the course dropbox when the instructor gave one), and a **receipt** (a fingerprint of the file). Nothing ever says "submitted": saving isn't submitting, and Draftwork can't know when the file is uploaded.
+  - **Preview** opens with a short check (length, AI disclosure, due date, any flags), with the instructor's full view one click away.
 - **Protecting work:**
   - autosave in the browser;
   - **earlier versions** to restore;

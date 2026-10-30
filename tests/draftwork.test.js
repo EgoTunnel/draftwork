@@ -66,6 +66,13 @@ test('diffOp finds the single edit between two strings', () => {
   assert.equal(diffOp('same', 'same'), null);
 });
 
+test('the course dropbox link must be a web address', () => {
+  assert.equal(newConfig({ title: 'A', submitUrl: ' https://lms.example.edu/d2l/dropbox/123 ' }).submit_url, 'https://lms.example.edu/d2l/dropbox/123');
+  assert.equal(newConfig({ title: 'A', submitUrl: 'javascript:alert(1)' }).submit_url, undefined);
+  assert.equal(newConfig({ title: 'A', submitUrl: 'not a link' }).submit_url, undefined);
+  assert.equal('submit_url' in newConfig({ title: 'A' }), false, 'absent unless set, so older hashes are unchanged');
+});
+
 test('assignment codes round-trip', async () => {
   const c = newConfig({ title: 'Essay', paste: 'allow', sourcesPane: false, wordsMin: 100 });
   const code = await encodeConfig(c);

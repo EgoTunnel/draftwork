@@ -12,6 +12,8 @@ import { createServer as httpServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 import { newConfig, encodeConfig, configHash } from '../public/js/core/format.js';
+import { zip } from '../public/js/core/export.js';
+import { writeFile } from 'node:fs/promises';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -175,6 +177,13 @@ async function check(name, fn) {
 const assert = (cond, msg) => {
   if (!cond) throw new Error(msg);
 };
+
+// Preview opens the student's short check first; this goes on to the instructor's full view.
+async function fullPreview(p) {
+  await p.eval(`document.querySelector('#preview-btn').click(); true`);
+  await p.waitFor('document.querySelector("#preview-body #readiness")', 20000);
+  await p.eval(`[...document.querySelectorAll('#preview-body button')].find((b) => /exactly what your instructor sees/.test(b.textContent)).click(); true`);
+}
 
 // Reads the autosaved draft (its event log) straight from IndexedDB.
 const draftEvents = (cfgHash) => `new Promise((res, rej) => {
@@ -350,11 +359,22 @@ try {
     await page.waitFor('document.querySelector("#receipt-dlg").open', 20000);
     const code = await page.eval('document.querySelector("#receipt-code").textContent');
     assert(/^([0-9A-F]{4} ){7}[0-9A-F]{4}$/.test(code), `receipt ${code}`);
+    // Never claims the assignment was submitted: the upload still has to happen.
+    const dlg = await page.eval('document.querySelector("#receipt-dlg").textContent');
+    assert(/File saved \(not submitted yet\)/.test(dlg) && /Saving doesn’t submit your assignment/.test(dlg) && /\.draftwork/.test(dlg), dlg);
     await page.eval(`document.querySelector('#receipt-dlg').close(); true`);
+    const status = await page.eval('document.querySelector("#filesave-status").textContent');
+    assert(/^File saved .* · remember to upload it$/.test(status), status);
+    assert(/^Draft kept on this computer/.test(await page.eval('document.querySelector("#autosave-status").textContent')), 'draft status wording');
   });
 
-  await check('preview: every integrity check passes', async () => {
+  await check('preview: a short check first, then every integrity check passes', async () => {
     await page.eval(`document.querySelector('#preview-btn').click(); true`);
+    await page.waitFor('document.querySelector("#preview-body #readiness")', 20000);
+    const simple = await page.eval('document.querySelector("#preview-body").textContent');
+    assert(/Before you save and upload/.test(simple) && /Saving doesn’t submit it/.test(simple) && !/sealed blocks/.test(simple), 'short check shows instructor detail');
+    await page.eval(`document.querySelector('#preview-close').click(); true`);
+    await fullPreview(page);
     await page.waitFor('document.querySelectorAll("#preview-body .checks li").length === 5', 20000);
     const marks = await page.eval('[...document.querySelectorAll("#preview-body .checks .mark")].map((m) => m.className)');
     assert(marks.every((m) => /pass|warn/.test(m)), `checks: ${marks.join(', ')}`);
@@ -385,7 +405,7 @@ try {
     const paste = ev.find((e) => e.it === 'insertFromDrop' && e.k === 'ins');
     const cite = ev.find((e) => e.k === 'cite');
     assert(paste && cite && cite.of === paste.s && cite.x === 'Rossi, The Architecture of the City', `events: ${JSON.stringify(cite)}`);
-    await p.eval(`document.querySelector('#preview-btn').click(); true`);
+    await fullPreview(p);
     await p.waitFor('document.querySelectorAll("#preview-body .checks li").length === 5', 20000);
     await p.eval(`[...document.querySelectorAll('#preview-body .tab')].find((t) => t.textContent === 'Document').click(); true`);
     const listed = await p.eval('document.querySelector("#preview-body .sources-list").textContent');
@@ -423,7 +443,7 @@ try {
     const ev = await p.eval(draftEvents(cfgH));
     assert(ev.some((e) => e.k === 'note' && e.i === 0), 'footnote typing not recorded');
     assert(ev.some((e) => e.k === 'fmt' && e.font === 5), 'font change not recorded');
-    await p.eval(`document.querySelector('#preview-btn').click(); true`);
+    await fullPreview(p);
     await p.waitFor('document.querySelectorAll("#preview-body .checks li").length === 5', 20000);
     const marks = await p.eval('[...document.querySelectorAll("#preview-body .checks .mark")].map((m) => m.className)');
     assert(marks.every((m) => /pass|warn/.test(m)), `checks: ${marks.join(', ')}`);
@@ -542,11 +562,39 @@ try {
     await demo.waitFor('!document.querySelector("#screen-writer").classList.contains("hidden")');
     await demo.eval('document.querySelector("#editor").focus(); true');
     await demo.type('A short test.');
-    await demo.eval(`document.querySelector('#preview-btn').click(); true`);
+    await fullPreview(demo);
     await demo.waitFor('document.querySelectorAll("#preview-body .checks li").length === 5', 20000);
     const tsa = await demo.eval('[...document.querySelectorAll("#preview-body .checks li")].pop().textContent');
     assert(/verified/.test(tsa) && /test assignment/i.test(tsa), `timestamp check: ${tsa}`);
     await demo.close(cdpPort);
+  });
+
+  await check('instructor: a Word document in the course-site zip is pointed out, and instructions are ready to paste', async () => {
+    // A Brightspace-style zip: one student uploaded their .draftwork file, another a Word document.
+    const sample = (await readdir(join(site, 'samples'))).find((n) => /avery-chen\.draftwork$/.test(n) && /cities/.test(n));
+    const dz = join(await mkdtemp(join(tmpdir(), 'draftwork-zip-')), 'submissions.zip');
+    await writeFile(dz, zip([
+      ['123-456 - Avery Chen - Oct 14, 2026 1200 PM - essay.draftwork', new Uint8Array(await readFile(join(site, 'samples', sample)))],
+      ['123-457 - Jamie Lee - Oct 14, 2026 1201 PM - My essay.docx', 'not a draftwork file'],
+      ['index.html', '<html></html>'],
+    ]));
+    const p = await Page.open(cdpPort);
+    await p.goto(`${sbase}/instructor.html`);
+    assert(await p.eval('!document.querySelector("#empty-hint").classList.contains("hidden")'), 'first steps not shown on an empty page');
+    const { root } = await p.send('DOM.getDocument', { depth: 0 });
+    const { nodeId } = await p.send('DOM.querySelector', { nodeId: root.nodeId, selector: '#file-input' });
+    await p.send('DOM.setFileInputFiles', { nodeId, files: [dz] });
+    await p.waitFor('document.querySelectorAll("tr.clickable").length === 1', 20000);
+    const notice = await p.eval('document.querySelector("#groups .notice.warn").textContent');
+    assert(/1 student uploaded other files/.test(notice) && /Jamie Lee: My essay\.docx \(a Word document\)/.test(notice) && !/Avery/.test(notice) && !/index\.html/.test(notice), notice);
+    assert(await p.eval('document.querySelector("#empty-hint").classList.contains("hidden")'), 'first steps still shown');
+    // Instructions for students: the link and the same words students see in Draftwork.
+    await p.eval(`document.querySelector('#tab-assign').click(); document.querySelector('#f-title').value = 'Instructions essay'; document.querySelector('#f-folder').checked = false; document.querySelector('#f-submit').value = 'https://lms.example.edu/dropbox/42'; document.querySelector('#new-form').requestSubmit(); true`);
+    await p.waitFor('document.querySelector("#assign-list").textContent.includes("Instructions essay")');
+    await p.eval(`[...document.querySelectorAll('#assign-list .assign-row')].find((r) => r.textContent.includes('Instructions essay')).querySelector('.btn.primary').click(); true`);
+    const text = await p.eval('document.querySelector(".instructions-text").value');
+    assert(/student\.html#a=/.test(text) && /Save file to upload…/.test(text) && /https:\/\/lms\.example\.edu\/dropbox\/42/.test(text) && /Saving doesn’t submit your assignment/.test(text), text);
+    await p.close(cdpPort);
   });
 
   await check('static demo: the sample class opens from the front page', async () => {

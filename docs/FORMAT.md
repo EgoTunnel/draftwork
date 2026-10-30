@@ -47,7 +47,8 @@ Unhashed fields are the student's own statements and settings; they may change a
   - `allow_demo_tsa`;
   - `tsa_anchors: [{ name, spki }]`;
   - `due`;
-  - `ai_disclosure`.
+  - `ai_disclosure`;
+  - `submit_url`: an http(s) link to where students upload the file (for example the course site's dropbox).
 - **`config_hash`:** `SHA-256(canonical(config))`.
 
 ## Events
