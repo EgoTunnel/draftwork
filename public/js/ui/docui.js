@@ -4,8 +4,8 @@ import { docHtml, docStyleCss, docStyle, toDocx, toPlainText, headerLine, pageNu
 
 const slug = (s) => String(s || 'document').replace(/[\\/:*?"<>|]+/g, '').trim().slice(0, 80) || 'document';
 
-export function downloadDocx(doc, style, title) {
-  download(toDocx(doc, style, title), `${slug(title)}.docx`, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+export function downloadDocx(doc, style, title, name = `${slug(title)}.docx`) {
+  download(toDocx(doc, style, title), name, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
 }
 
 export function downloadTxt(doc, title) {

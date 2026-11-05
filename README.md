@@ -7,7 +7,7 @@ Students write in a word processor that records how their work came together. In
 Write as a student, or explore a sample class with copied, retyped and tampered submissions. To use it with your own students:
 
 1. Open **Review → Assignments**, create an assignment, and share its link.
-2. Students write and send you their `.draftwork` file, by LMS, email or a shared folder.
+2. Students write and send you their `.draftwork` file, by LMS, email or a shared folder. A Word copy is saved with it, so you can also see the work in your LMS's preview.
 3. Drop the files on **Review**.
 
 There are no accounts, nothing to install, and nothing to pay.
@@ -46,7 +46,8 @@ No dependencies; Node 20+.
 - **Recording:**
   - Every change is recorded.
   - Checkpoints are stamped by an approved RFC 3161 service every 60 s of activity.
-  - **Save file to upload…** saves the `.draftwork` file and opens a short panel: where the file went, upload it to your course (with a button for the course dropbox when the instructor gave one), and a **receipt** (a fingerprint of the file). Nothing ever says "submitted": saving isn't submitting, and Draftwork can't know when the file is uploaded.
+  - **Save** (Ctrl+S) keeps a backup `.draftwork` file while the student works.
+  - **Ready to submit…** saves the `.draftwork` file and opens a short panel: a button for the Word copy (for the LMS's preview; browsers ask permission for two downloads from one click, so it has its own), where the files went, upload them to your course (with a button for the course dropbox when the instructor gave one), and a **receipt** (a fingerprint of the `.draftwork` file). The instructor decides whether students upload both files or only the `.draftwork` file. Nothing ever says "submitted": saving isn't submitting, and Draftwork can't know when the files are uploaded.
   - **Preview** opens with a short check (length, AI disclosure, due date, any flags), with the instructor's full view one click away.
 - **Protecting work:**
   - autosave in the browser;

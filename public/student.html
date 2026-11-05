@@ -51,10 +51,10 @@
       <div class="card stack hidden" id="resume-card">
         <h2>Continue your draft</h2>
         <p class="muted" id="resume-info"></p>
-        <p class="small muted" style="margin:0">Your draft is kept in this browser only. Clearing browsing data, a private window, or another browser or computer won’t have it. Save your file often: it’s your backup, and it’s what you upload to your course.</p>
+        <p class="small muted" style="margin:0">Your draft is kept in this browser only. Clearing browsing data, a private window, or another browser or computer won’t have it. Save a file often: it’s your backup.</p>
         <div class="row">
           <button class="btn primary" id="resume-btn" type="button">Continue writing</button>
-          <button class="btn" id="resume-save" type="button" data-tip="Save the file you upload to your course, without opening the draft">Save file to upload…</button>
+          <button class="btn" id="resume-save" type="button" data-tip="Save the files for your course (.draftwork and Word), without opening the draft">Ready to submit…</button>
           <span class="spacer"></span>
           <button class="btn ghost small" id="discard-btn" type="button" data-tip="Remove this draft from this browser. Save the file first if you might need it.">Discard draft</button>
         </div>
@@ -115,7 +115,8 @@
       <button class="pill pill-btn" type="button" id="stamp-pill"><span class="dot"></span><span id="stamp-text">Checking connection…</span></button>
       <span class="appearance-slot"></span>
       <button class="btn small" id="preview-btn" type="button" data-tip="See your work the way your instructor will">Preview</button>
-      <button class="btn small primary" id="save-btn" type="button" data-tip="Save the file you upload to your course (Ctrl+S). Saving doesn’t submit it.">Save file to upload…</button>
+      <button class="btn small" id="keep-btn" type="button" data-tip="Save a backup file of your work so far (Ctrl+S). It doesn’t submit anything.">Save</button>
+      <button class="btn small primary" id="save-btn" type="button" data-tip="When you’re finished: save the files for your course (.draftwork and Word). Saving doesn’t submit them.">Ready to submit…</button>
     </header>
     <div class="toolbar" id="toolbar" role="toolbar" aria-label="Formatting"></div>
     <div class="due-banner hidden" id="due-banner" role="status"></div>
@@ -197,9 +198,9 @@
     <main class="page narrow">
       <div class="card stack">
         <h1>Session ended</h1>
-        <p>Your draft is kept on this computer. When you’re finished, save your file, then upload it to your course.</p>
+        <p>Your draft is kept on this computer. When you’re finished, save your files, then upload them to your course.</p>
         <div class="row">
-          <button class="btn primary" id="ended-save" type="button">Save file to upload…</button>
+          <button class="btn primary" id="ended-save" type="button">Ready to submit…</button>
           <button class="btn" id="ended-preview" type="button">Preview</button>
           <button class="btn" id="ended-continue" type="button">Keep writing</button>
         </div>
@@ -254,20 +255,23 @@
   <dialog id="receipt-dlg">
     <form method="dialog">
       <div class="dlg-body stack">
-        <h2>File saved (not submitted yet)</h2>
-        <p style="margin:0">Save your file, then upload it to your course:</p>
+        <h2>Not submitted yet: save and upload your files</h2>
         <ol class="save-steps">
           <li class="done">
-            <strong>Save the file.</strong> Done. It went to your <strong>Downloads</strong> folder as:
+            <strong>Save the files.</strong> They go to your <strong>Downloads</strong> folder.
+            <div class="small" style="margin-top:6px">Your .draftwork file is saved:</div>
             <div class="file-name" id="receipt-name"></div>
-            <div class="small muted">Can’t find it? Open your browser’s list of downloads (Ctrl+J in Chrome or Edge).</div>
+            <div class="small" style="margin-top:6px">Now save the Word document:</div>
+            <div class="file-name" id="receipt-word-name"></div>
+            <div style="margin-top:6px"><button class="btn small primary" type="button" id="receipt-word" autofocus>Save the Word document</button></div>
+            <div class="small muted" style="margin-top:6px">Can’t find a file? Press Ctrl+J in Chrome or Edge to see your downloads.</div>
           </li>
           <li>
-            <strong>Upload it to your course</strong>, in the assignment’s dropbox, the same way you’d upload a Word document.
+            <strong>Upload them to your course</strong>, in the assignment’s dropbox. The <strong>.draftwork</strong> file is always needed. Upload the Word document too if your instructor asks for it.
             <div id="receipt-dropbox"></div>
           </li>
           <li>
-            <strong>Keep your receipt.</strong> It identifies exactly this file, so you can show which version you uploaded.
+            <strong>Keep your receipt.</strong> It identifies exactly this .draftwork file, so you can show which version you uploaded.
             <div class="row" style="margin-top:6px">
               <div class="receipt" id="receipt-code" data-tip="A code made from your file. Your instructor sees the same code when they open it, so it shows exactly which file you uploaded."></div>
               <button class="btn small" type="button" id="receipt-copy">Copy receipt</button>
@@ -275,7 +279,7 @@
             <div class="small muted" id="receipt-meta"></div>
           </li>
         </ol>
-        <div class="notice warn" style="margin:0"><strong>Saving doesn’t submit your assignment.</strong> It isn’t submitted until you upload this file to your course.</div>
+        <div class="notice warn" style="margin:0"><strong>Saving doesn’t submit your assignment.</strong> It isn’t submitted until you upload your files to your course.</div>
       </div>
       <div class="dlg-foot">
         <button class="btn primary" value="ok">OK</button>

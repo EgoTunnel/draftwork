@@ -381,10 +381,10 @@ try {
     assert(/^([0-9A-F]{4} ){7}[0-9A-F]{4}$/.test(code), `receipt ${code}`);
     // Never claims the assignment was submitted: the upload still has to happen.
     const dlg = await page.eval('document.querySelector("#receipt-dlg").textContent');
-    assert(/File saved \(not submitted yet\)/.test(dlg) && /Saving doesn’t submit your assignment/.test(dlg) && /\.draftwork/.test(dlg), dlg);
+    assert(/Not submitted yet/.test(dlg) && /Saving doesn’t submit your assignment/.test(dlg) && /\.draftwork/.test(dlg) && /\.docx/.test(dlg), dlg);
     await page.eval(`document.querySelector('#receipt-dlg').close(); true`);
     const status = await page.eval('document.querySelector("#filesave-status").textContent');
-    assert(/^File saved .* · remember to upload it$/.test(status), status);
+    assert(/^Files saved .* · remember to upload them$/.test(status), status);
     assert(/^Draft kept on this computer/.test(await page.eval('document.querySelector("#autosave-status").textContent')), 'draft status wording');
   });
 
@@ -392,7 +392,7 @@ try {
     await page.eval(`document.querySelector('#preview-btn').click(); true`);
     await page.waitFor('document.querySelector("#preview-body #readiness")', 20000);
     const simple = await page.eval('document.querySelector("#preview-body").textContent');
-    assert(/Before you save and upload/.test(simple) && /Saving doesn’t submit it/.test(simple) && !/sealed blocks/.test(simple), 'short check shows instructor detail');
+    assert(/Before you save and upload/.test(simple) && /Saving doesn’t submit them/.test(simple) && !/sealed blocks/.test(simple), 'short check shows instructor detail');
     await page.eval(`document.querySelector('#preview-close').click(); true`);
     await fullPreview(page);
     await page.waitFor('document.querySelectorAll("#preview-body .checks li").length === 5', 20000);
@@ -497,7 +497,7 @@ try {
     await confirmStart(p);
     await p.waitFor('!document.querySelector("#due-banner").classList.contains("hidden")', 10000);
     const text = await p.eval('document.querySelector("#due-banner").textContent');
-    assert(/Due in less than an hour/.test(text) && /save your file, then upload it to your course/.test(text) && !/less than a day/.test(text), text);
+    assert(/Due in less than an hour/.test(text) && /save your files, then upload them to your course/.test(text) && !/less than a day/.test(text), text);
     await p.eval(`document.querySelector('#due-banner .icon-btn').click(); true`);
     assert(await p.eval('document.querySelector("#due-banner").classList.contains("hidden")'), 'not dismissed');
     // Shown once: coming back to the draft doesn't bring it back.
@@ -531,6 +531,51 @@ try {
     await q.waitFor('!document.querySelector("#new-card").classList.contains("hidden") && !document.querySelector("#versions-card").classList.contains("hidden")');
     assert(/First Student/.test(await q.eval('document.querySelector("#versions-list").textContent')), 'first draft not kept');
     await q.close(cdpPort);
+  });
+
+  await check('Save keeps only a backup; Ready to submit saves the .draftwork file and a Word copy', async () => {
+    const dl = await mkdtemp(join(tmpdir(), 'draftwork-dl-'));
+    const cfg = newConfig({ title: 'Two files', allowDemoTsa: true, aiDisclosure: true });
+    const p = await Page.open(cdpPort);
+    await p.send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: dl });
+    await p.goto(`${base}/student.html#a=${await encodeConfig(cfg)}`);
+    await p.waitFor('!document.querySelector("#new-card").classList.contains("hidden")');
+    await p.eval(`document.querySelector('#label-input').value = 'Pair Student'; document.querySelector('#consent-input').checked = true; document.querySelector('#start-btn').click(); true`);
+    await confirmStart(p);
+    await p.waitFor('!document.querySelector("#screen-writer").classList.contains("hidden")');
+    await p.eval('document.querySelector("#editor").focus(); true');
+    await p.type('Two files from one click.');
+    const waitForFile = async (re, what) => {
+      for (let i = 0; i < 100; i++) {
+        const names = await readdir(dl);
+        const hit = names.find((n) => re.test(n));
+        if (hit) return hit;
+        await sleep(100);
+      }
+      throw new Error(`no ${what}: ${(await readdir(dl)).join(', ')}`);
+    };
+    // Save: only the .draftwork file, no window, and no AI question yet.
+    await p.eval(`document.querySelector('#keep-btn').click(); true`);
+    await waitForFile(/^two-files-pair-student\.draftwork$/, '.draftwork backup');
+    await sleep(800);
+    assert(!(await readdir(dl)).some((n) => /\.docx$/.test(n)), 'Save made a Word copy');
+    assert(await p.eval('!document.querySelector("#receipt-dlg").open && !document.querySelector("#notes-dlg").open'), 'Save opened a window');
+    assert(/^Backup saved /.test(await p.eval('document.querySelector("#filesave-status").textContent')), 'backup status');
+    // Ready to submit: asks the AI question, then saves both files with matching names.
+    await p.eval(`document.querySelector('#save-btn').click(); true`);
+    await p.waitFor('document.querySelector("#notes-dlg").open');
+    await p.eval(`document.querySelector('#ai-used').value = 'none'; document.querySelector('#notes-dlg').close(); true`);
+    await sleep(300);
+    await p.eval(`document.querySelector('#save-btn').click(); true`);
+    await p.waitFor('document.querySelector("#receipt-dlg").open', 20000);
+    await p.eval(`document.querySelector('#receipt-word').click(); true`);
+    const word = await waitForFile(/^two-files-pair-student\.docx$/, 'Word copy');
+    const bytes = await readFile(join(dl, word));
+    assert(bytes[0] === 0x50 && bytes[1] === 0x4b && bytes.includes('Two files from one click.'.slice(0, 9)), 'not a Word document with the text');
+    assert((await p.eval('document.querySelector("#receipt-word-name").textContent')) === word, 'window names a different file');
+    await p.eval(`document.querySelector('#receipt-dlg').close(); window.onbeforeunload = null; true`);
+    await p.close(cdpPort);
+    await rm(dl, { recursive: true, force: true }).catch(() => {});
   });
 
   await check('instructor: Make a copy fills the form with an assignment\'s settings', async () => {
@@ -659,6 +704,8 @@ try {
     const dz = join(await mkdtemp(join(tmpdir(), 'draftwork-zip-')), 'submissions.zip');
     await writeFile(dz, zip([
       ['123-456 - Avery Chen - Oct 14, 2026 1200 PM - essay.draftwork', new Uint8Array(await readFile(join(site, 'samples', sample)))],
+      // Avery's Word copy, uploaded with the .draftwork file, is expected and not reported.
+      ['123-456 - Avery Chen - Oct 14, 2026 1200 PM - essay.docx', 'a word copy'],
       ['123-457 - Jamie Lee - Oct 14, 2026 1201 PM - My essay.docx', 'not a draftwork file'],
       ['index.html', '<html></html>'],
     ]));
@@ -672,12 +719,23 @@ try {
     const notice = await p.eval('document.querySelector("#groups .notice.warn").textContent');
     assert(/1 student uploaded other files/.test(notice) && /Jamie Lee: My essay\.docx \(a Word document\)/.test(notice) && !/Avery/.test(notice) && !/index\.html/.test(notice), notice);
     assert(await p.eval('document.querySelector("#empty-hint").classList.contains("hidden")'), 'first steps still shown');
+    // A Word document is a zip too: dropped on its own, it isn't opened as a submissions zip.
+    const loose = join(dirname(dz), 'essay.docx');
+    await writeFile(loose, zip([['word/document.xml', '<w:document/>']]));
+    await p.send('DOM.setFileInputFiles', { nodeId, files: [loose] });
+    await sleep(800);
+    assert(!/could not be read/.test(await p.eval('document.querySelector("#load-status").textContent')), 'Word document reported as unreadable');
+    assert(!/(?<!My )essay\.docx/.test(await p.eval('document.querySelector("#groups .notice.warn").textContent')), 'paired Word document reported');
     // Instructions for students: the link and the same words students see in Draftwork.
     await p.eval(`document.querySelector('#tab-assign').click(); document.querySelector('#f-title').value = 'Instructions essay'; document.querySelector('#f-folder').checked = false; document.querySelector('#f-submit').value = 'https://lms.example.edu/dropbox/42'; document.querySelector('#new-form').requestSubmit(); true`);
     await p.waitFor('document.querySelector("#assign-list").textContent.includes("Instructions essay")');
     await p.eval(`[...document.querySelectorAll('#assign-list .assign-row')].find((r) => r.textContent.includes('Instructions essay')).querySelector('.btn.primary').click(); true`);
     const text = await p.eval('document.querySelector(".instructions-text").value');
-    assert(/student\.html#a=/.test(text) && /Save file to upload…/.test(text) && /https:\/\/lms\.example\.edu\/dropbox\/42/.test(text) && /Saving doesn’t submit your assignment/.test(text), text);
+    assert(/student\.html#a=/.test(text) && /Ready to submit…/.test(text) && /Upload both files/.test(text) && /https:\/\/lms\.example\.edu\/dropbox\/42/.test(text) && /Saving doesn’t submit your assignment/.test(text), text);
+    // The instructor says what to upload, and the text follows.
+    await p.eval(`(() => { const s = document.querySelector('#upload-what'); s.value = 'draftwork'; s.dispatchEvent(new Event('change')); return true; })()`);
+    const only = await p.eval('document.querySelector(".instructions-text").value');
+    assert(/Upload only the \.draftwork file/.test(only) && /not the Word document/.test(only) && !/both files/.test(only) && !/Save the Word document/.test(only), only);
     await p.close(cdpPort);
   });
 

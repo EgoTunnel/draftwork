@@ -8,7 +8,7 @@
 
 **Data sent during writing.** About once a minute, a SHA-256 fingerprint of your progress is sent via [relay operator] to a public RFC 3161 timestamp service ([FreeTSA / DigiCert / Sectigo]). A fingerprint cannot be used to recover your text.
 
-**Where your work is stored.** In your browser until you submit. The file you upload is stored in [LMS name] with your other coursework.
+**Where your work is stored.** In your browser until you submit. The files you upload are stored in [LMS name] with your other coursework.
 
 **Who has access.** Your instructor and [teaching assistants / academic integrity office, if applicable]. You can see the same view before submitting.
 

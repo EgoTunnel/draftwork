@@ -426,8 +426,9 @@ function renderLibrary() {
 }
 
 // Plain instructions for students, to paste into the course site. They use the same words as
-// Draftwork itself ("Save file to upload", "upload it to your course").
-function studentInstructions(a) {
+// Draftwork itself ("Ready to submit", "upload them to your course"). `both`: students upload the
+// Word document as well as the .draftwork file. Draftwork always saves both; what to upload is the instructor's call.
+function studentInstructions(a, both = true) {
   const c = a.config;
   const due = c.due ? new Date(c.due).toLocaleString(undefined, { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null;
   const where = c.submit_url ? `to this assignment’s dropbox: ${c.submit_url}` : 'to this assignment’s dropbox in our course site';
@@ -438,24 +439,48 @@ function studentInstructions(a) {
     due ? (due.endsWith('.') ? `Due ${due}` : `Due ${due}.`) : null,
     '',
     '1. Open the link in Chrome or Edge on a computer, in a normal window (not Incognito or InPrivate). Enter your name and student number (check them carefully: they can’t be changed later), then start writing. Your draft is kept on that computer as you go.',
-    '2. When you’re finished, click “Save file to upload…”. This saves a .draftwork file to your Downloads folder.',
-    `3. Upload that .draftwork file ${where}, the same way you’d upload a Word document. Saving doesn’t submit your assignment: it isn’t submitted until you upload the file.`,
+    `2. When you’re finished, click “Ready to submit…”. This saves a .draftwork file to your Downloads folder.${both ? ' In the window that opens, click “Save the Word document” to save a Word document (.docx) too.' : ''}`,
+    `3. Upload ${both ? 'both files' : 'only the .draftwork file'} ${where}. Saving doesn’t submit your assignment: it isn’t submitted until you upload ${both ? 'them' : 'it'}.`,
     '4. Keep the receipt Draftwork shows you after saving.',
     '',
     c.policy.paste === 'block'
       ? `Pasting text from other places is turned off.${c.policy.sources_pane ? ' To quote a source, paste it into the Sources panel on the right, then copy it into your writing from there.' : ''}`
       : null,
-    'Working on another computer? Save your file, then on the other computer open the link above and choose “Continue from a file I saved…” to keep writing.',
-    'Please upload only the .draftwork file, not a Word document. If something isn’t working, save your file and contact me.',
+    'Working on another computer? Click Save, then on the other computer open the link above and choose “Continue from a file I saved…” to keep writing.',
+    `${both ? 'Please upload both files: the Word document alone isn’t enough.' : 'Please upload only the .draftwork file, not the Word document.'} If something isn’t working, click Save and contact me.`,
   ].filter((l) => l !== null).join('\n');
 }
 
+const UPLOAD_KEY = 'draftwork.upload'; // the last answer to "What should students upload?"
+
 function showInstructions(anchor, a) {
   const ta = h('textarea', { rows: 14, readonly: true, 'aria-label': 'Instructions for students', class: 'instructions-text' });
-  ta.value = studentInstructions(a);
+  let stored = null;
+  try {
+    stored = localStorage.getItem(UPLOAD_KEY);
+  } catch { /* not kept */ }
+  const what = h('select', { id: 'upload-what', 'aria-describedby': 'upload-hint' },
+    h('option', { value: 'both', selected: stored !== 'draftwork' }, 'Both files: .draftwork and Word'),
+    h('option', { value: 'draftwork', selected: stored === 'draftwork' }, 'Only the .draftwork file'));
+  const hint = h('div', { class: 'small muted', id: 'upload-hint' });
+  const update = () => {
+    const both = what.value === 'both';
+    ta.value = studentInstructions(a, both);
+    hint.textContent = both
+      ? 'You can see the Word document in your course site’s preview. In the dropbox settings, allow .draftwork and .docx files (or all file types), and at least two files per student.'
+      : 'In the dropbox settings, allow .draftwork files (or all file types).';
+  };
+  what.addEventListener('change', () => {
+    update();
+    try {
+      localStorage.setItem(UPLOAD_KEY, what.value);
+    } catch { /* not kept */ }
+  });
+  update();
   popover(anchor, h('div', { class: 'share-pop stack instructions-pop' },
     h('strong', null, 'Instructions for students'),
-    h('div', { class: 'small muted' }, 'Paste this into the assignment in your course site. In the dropbox settings, allow .draftwork files (or all file types). ', h('a', { href: 'handout-students.html', target: '_blank', rel: 'noopener' }, 'Printable handout for students')),
+    h('div', null, h('label', { for: 'upload-what' }, 'What should students upload?'), what, hint),
+    h('div', { class: 'small muted' }, 'Paste this into the assignment in your course site. ', h('a', { href: 'handout-students.html', target: '_blank', rel: 'noopener' }, 'Printable handout for students')),
     ta,
     h('div', { class: 'row' },
       h('button', { class: 'btn small primary', type: 'button', onclick: () => { copyText(ta.value); closePopover(); } }, 'Copy instructions'),
@@ -694,8 +719,13 @@ async function addFiles(entries) {
   const errors = [];
   // Expand LMS zips; keep only .draftwork files from inside them.
   const files = [];
+  const noteOther = (path) => {
+    if (!otherFiles.some((o) => o.path === path)) otherFiles.push({ path, name: path.split('/').pop(), lms: lmsName(path) });
+  };
   for (const e of entries) {
-    if (isZip(e.bytes)) {
+    // A Word document is a zip too, so it has to be set aside before the zip check.
+    if (/\.docx$/i.test(e.name)) noteOther(e.name);
+    else if (isZip(e.bytes)) {
       status.textContent = `Opening ${e.name}…`;
       try {
         const all = await readZip(e.bytes);
@@ -703,8 +733,7 @@ async function addFiles(entries) {
         // Anything else a student uploaded (a Word document, say) would otherwise vanish silently.
         for (const x of all) {
           if (/\.draftwork$/i.test(x.name) || /(^|\/)(index\.html?|\.DS_Store|Thumbs\.db)$|(^|\/)__MACOSX\//i.test(x.name)) continue;
-          const name = x.name.split('/').pop();
-          if (!otherFiles.some((o) => o.path === x.name)) otherFiles.push({ path: x.name, name, lms: lmsName(x.name) });
+          noteOther(x.name);
         }
         if (!inner.length) errors.push(`${e.name}: no .draftwork files inside`);
         files.push(...inner);
@@ -782,24 +811,31 @@ function updateFirstSteps() {
   first.classList.toggle('current', !has);
 }
 
-// A file's name as the student gave it, without the course site's prefix, and what kind it is.
+// A file's name as the student gave it, without the course site's prefix.
+const givenName = (name) => name
+  .replace(/^\d+-\d+ - .+? - [A-Z][a-z]{2} \d{1,2}, \d{4} \d{3,4} [AP]M - /, '') // Brightspace
+  .replace(/^.*?_attempt_\d{4}-\d\d-\d\d-\d\d-\d\d-\d\d_/, '') // Blackboard
+  .replace(/^[a-z][a-z-]*?(?:_late)?_\d+_\d+_/i, ''); // Canvas
+
+const stem = (name) => givenName(name).replace(/\.[a-z0-9]+$/i, '').toLowerCase();
+
+// That name, and what kind of file it is.
 function plainFileName(name) {
-  const base = name
-    .replace(/^\d+-\d+ - .+? - [A-Z][a-z]{2} \d{1,2}, \d{4} \d{3,4} [AP]M - /, '') // Brightspace
-    .replace(/^.*?_attempt_\d{4}-\d\d-\d\d-\d\d-\d\d-\d\d_/, '') // Blackboard
-    .replace(/^[a-z][a-z-]*?(?:_late)?_\d+_\d+_/i, ''); // Canvas
+  const base = givenName(name);
   const ext = (base.match(/\.([a-z0-9]+)$/i) || [])[1] || '';
   const kind = { docx: 'a Word document', doc: 'a Word document', pdf: 'a PDF', txt: 'a text file', odt: 'an OpenOffice document', pages: 'a Pages document', rtf: 'a rich text file' }[ext.toLowerCase()];
   return kind ? `${base} (${kind})` : base;
 }
 
-// Students whose upload contained other files and no .draftwork file at all.
+// Students whose upload contained other files and no .draftwork file at all. The Word document
+// that Draftwork saves beside the .draftwork file is expected: it's paired by student, or else by file name.
 function wrongFilesNotice() {
   const withDraftwork = new Set(loaded.map((x) => x.lms && x.lms.name && normLabel(x.lms.name)).filter(Boolean));
+  const stems = new Set(loaded.map((x) => stem(x.name)));
   const byStudent = new Map();
   for (const o of otherFiles) {
     const who = o.lms && o.lms.name ? o.lms.name : '';
-    if (who && withDraftwork.has(normLabel(who))) continue;
+    if ((who && withDraftwork.has(normLabel(who))) || stems.has(stem(o.name))) continue;
     const key = who ? normLabel(who) : o.path;
     if (!byStudent.has(key)) byStudent.set(key, { who, names: [] });
     byStudent.get(key).names.push(plainFileName(o.name));
@@ -813,7 +849,7 @@ function wrongFilesNotice() {
       : `${list.length} upload${list.length === 1 ? '' : 's'} contained other files instead of a Draftwork file, so ${list.length === 1 ? 'it isn’t' : 'they aren’t'} listed below.`),
     h('ul', { class: 'small', style: 'margin:6px 0' }, list.slice(0, 30).map((s) => h('li', null, s.who ? h('strong', null, s.who) : null, s.who ? ': ' : '', s.names.join(', ')))),
     list.length > 30 ? h('div', { class: 'small' }, `and ${list.length - 30} more.`) : null,
-    h('div', { class: 'small' }, 'Ask them to use “Save file to upload…” in Draftwork and upload the .draftwork file it saves (not a Word document).'));
+    h('div', { class: 'small' }, 'Ask them to use “Ready to submit…” in Draftwork and upload the .draftwork file it saves. A Word document on its own has no record of the writing.'));
 }
 
 function renderGroups() {

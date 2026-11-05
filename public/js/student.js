@@ -1,6 +1,6 @@
 import { $, $$, h, toast, download, LOGO } from './ui/dom.js';
 import { sha256Hex, hex, sha256Bytes, fingerprintCode } from './core/canon.js';
-import { decodeConfig, configHash, diffOp, parseFile, serializeFile, fileName, countWords, safeUrl } from './core/format.js';
+import { decodeConfig, configHash, diffOp, parseFile, serializeFile, fileName, countWords, safeUrl, finalDoc } from './core/format.js';
 import { MARKS, STYLES, HEADING_STYLES, FONT_KEYS, SIZE_LIST } from './core/doc.js';
 import { FONTS, SIZES, LINE_SPACINGS, docStyle, docStyleCss, headerLine, pageNumMode } from './core/export.js';
 import { Recorder } from './core/recorder.js';
@@ -145,13 +145,15 @@ async function openAssignment(code) {
   if (saved) {
     lastFileSave = saved.lastFileSave || 0;
     eventsAtFileSave = saved.eventsAtFileSave || 0;
+    lastFilesForCourse = saved.lastFilesForCourse || 0;
+    eventsAtFilesForCourse = saved.eventsAtFilesForCourse || 0;
   }
   if (saved && saved.file) {
     const f = saved.file;
     $('#resume-info').textContent = `${f.header.student_label} · ${countWords(f.final.text)} words · saved ${new Date(saved.savedAt).toLocaleString()}`;
     $('#resume-card').classList.remove('hidden');
     $('#resume-btn').onclick = () => begin(() => Recorder.resume(f, recOpts()));
-    $('#resume-save').onclick = async () => saveFileFrom(f);
+    $('#resume-save').onclick = async () => saveFilesFrom(f);
     $('#resume-who').textContent = f.header.student_label;
     // A shared computer: the draft here is someone else's. Set it aside (never trimmed) instead of deleting it.
     $('#not-me-btn').onclick = async () => {
@@ -352,7 +354,7 @@ function startWriting() {
         live.textContent = '';
         setTimeout(() => (live.textContent = msg), 30);
       },
-      keys: { save: saveNow, print: printNow, find: () => openFind(false), replace: () => openFind(true) },
+      keys: { save: saveBackup, print: printNow, find: () => openFind(false), replace: () => openFind(true) },
     });
     buildToolbar();
     buildMenus();
@@ -380,7 +382,7 @@ const TOUR_KEY = 'draftwork.tour';
 const TOUR = [
   { at: '#sheet', title: 'Write here, like in Word', text: 'The menus and toolbar work the way you’re used to: styles, fonts, lists, footnotes, find and replace.' },
   { at: '#autosave-status', title: 'Your draft keeps itself', text: 'As you write, Draftwork keeps your draft on this computer. You can close the page and come back to it here.' },
-  { at: '#save-btn', title: 'When you’re finished', text: 'Click “Save file to upload…”, then upload the file to your course. Saving doesn’t submit it: the upload does.' },
+  { at: '#save-btn', title: 'When you’re finished', text: 'Click “Ready to submit…” to save your files. Then upload them to your course. Saving doesn’t submit them: the upload does.' },
 ];
 function tourSeen() {
   try {
@@ -709,8 +711,9 @@ function buildMenus() {
     {
       label: 'File',
       items: () => [
-        { label: 'Save file to upload…', shortcut: 'Ctrl+S', action: saveNow, tip: 'Save the file (.draftwork) you upload to your course. Saving doesn’t submit it.' },
-        { label: 'Download as Word document (not for submitting)', action: () => downloadDocx(rec.doc, rec.header.doc_style, config.title), tip: 'A copy for your own use. Upload the .draftwork file to your course, not this one.' },
+        { label: 'Save', shortcut: 'Ctrl+S', action: saveBackup, tip: 'Save a backup file (.draftwork) of your work so far. It doesn’t submit anything.' },
+        { label: 'Ready to submit…', action: saveNow, tip: 'When you’re finished: save the files for your course (.draftwork and Word). Saving doesn’t submit them.' },
+        { label: 'Download a Word copy', action: () => downloadDocx(rec.doc, rec.header.doc_style, config.title), tip: 'A Word document for your own use. To save the files for your course, use Ready to submit.' },
         { label: 'Download as text (.txt)', action: () => downloadTxt(rec.doc, config.title) },
         { label: 'Print…', shortcut: 'Ctrl+P', action: printNow },
         '-',
@@ -907,19 +910,19 @@ function dueNudge(left, due) {
     localStorage.setItem(key, JSON.stringify(seen));
   } catch { /* not kept */ }
   const when = due.toLocaleString(undefined, { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  const todo = !lastFileSave || unsavedToFile()
-    ? 'When you’re finished, save your file, then upload it to your course.'
-    : 'Your file is saved. Remember to upload it to your course.';
+  const todo = !lastFilesForCourse || rec.events.length > eventsAtFilesForCourse
+    ? 'When you’re finished, save your files, then upload them to your course.'
+    : 'Your files are saved. Remember to upload them to your course.';
   const stop = (s) => (s.endsWith('.') ? s : `${s}.`);
   const head = { day: stop(`Due in less than a day: ${when}`), hour: stop(`Due in less than an hour: ${when}`), past: `The due date (${when}) has passed.` }[hit[0]];
-  const extra = hit[0] === 'past' ? ' You can still save and upload your file; your instructor will see when it was written.' : ` ${todo}`;
+  const extra = hit[0] === 'past' ? ' You can still save and upload your files; your instructor will see when your work was written.' : ` ${todo}`;
   const box = $('#due-banner');
   box.innerHTML = '';
   box.className = `due-banner ${hit[0] === 'day' ? 'warn' : 'bad'}`;
   box.append(
     h('span', null, h('strong', null, head), extra),
     h('span', { class: 'spacer' }),
-    h('button', { class: 'btn small primary', type: 'button', onclick: () => { box.classList.add('hidden'); saveNow(); } }, 'Save file to upload…'),
+    h('button', { class: 'btn small primary', type: 'button', onclick: () => { box.classList.add('hidden'); saveNow(); } }, 'Ready to submit…'),
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Dismiss', 'data-tip': 'Dismiss', onclick: () => box.classList.add('hidden') }, '✕'));
 }
 setInterval(() => rec && rec.inSession && updateDue(), 30_000);
@@ -1341,16 +1344,16 @@ async function saveDraft() {
   saving = (async () => {
     try {
       const file = structuredClone(await rec.toFile());
-      await putDraft(draftKey, { file, savedAt: Date.now(), lastFileSave, eventsAtFileSave });
+      await putDraft(draftKey, { file, savedAt: Date.now(), lastFileSave, eventsAtFileSave, lastFilesForCourse, eventsAtFilesForCourse });
       if (Date.now() - lastVersionAt > VERSION_EVERY_MS) {
         lastVersionAt = Date.now();
         await addVersion(cfgHash, file, countWords(file.final.text));
       }
       $('#autosave-status').textContent = `Draft kept on this computer · ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
-      $('#autosave-status').dataset.tip = 'Draftwork keeps your draft in this browser as you write. To submit, use Save file to upload, then upload the file to your course.';
+      $('#autosave-status').dataset.tip = 'Draftwork keeps your draft in this browser as you write. When you’re finished, use Ready to submit, then upload your files to your course.';
     } catch {
       $('#autosave-status').textContent = 'Draft not kept on this computer';
-      $('#autosave-status').dataset.tip = 'This browser isn’t letting Draftwork keep your draft. Use Save file to upload regularly, so your work is safe.';
+      $('#autosave-status').dataset.tip = 'This browser isn’t letting Draftwork keep your draft. Click Save regularly to keep a backup file, so your work is safe.';
     } finally {
       saving = null;
     }
@@ -1366,13 +1369,34 @@ async function finalFile() {
   return structuredClone(await rec.toFile());
 }
 
-async function saveFileFrom(file) {
-  const p = file.assignment.config.policy;
-  const w = countWords(file.final.text);
+async function saveDraftworkFile(file) {
   const bytes = await serializeFile(file);
   download(bytes, fileName(file), 'application/gzip');
   lastFileSave = Date.now();
   eventsAtFileSave = file.events.length;
+  return bytes;
+}
+
+// The Word copy has the same name as the .draftwork file, so the two are easy to pair up.
+const wordName = (file) => fileName(file).replace(/\.draftwork$/, '.docx');
+const saveWordCopy = (file) => downloadDocx(finalDoc(file), file.header.doc_style, file.assignment.config.title, wordName(file));
+
+// "Save": a backup of the work so far, with no Word copy and nothing to do next.
+async function saveBackupFrom(file) {
+  await saveDraftworkFile(file);
+  updateFileSaveStatus();
+  toast(`Backup saved to your Downloads folder as ${fileName(file)}. When you’re finished, click Ready to submit.`, 8000);
+}
+
+// "Ready to submit": the files for the course. Saves the .draftwork file; the Word copy is a button in
+// the window that follows. Browsers ask permission for a second download from one click, and a
+// student who misses that or blocks it would get no Word copy, so each file has its own click.
+async function saveFilesFrom(file) {
+  const p = file.assignment.config.policy;
+  const w = countWords(file.final.text);
+  const bytes = await saveDraftworkFile(file);
+  lastFilesForCourse = lastFileSave;
+  eventsAtFilesForCourse = eventsAtFileSave;
   updateFileSaveStatus();
   await showReceipt(file, bytes);
   const notes = [];
@@ -1387,6 +1411,15 @@ async function showReceipt(file, bytes) {
   const when = new Date();
   const words = countWords(file.final.text);
   $('#receipt-name').textContent = fileName(file);
+  $('#receipt-word-name').textContent = wordName(file);
+  const wordBtn = $('#receipt-word');
+  wordBtn.textContent = 'Save the Word document';
+  wordBtn.classList.add('primary');
+  wordBtn.onclick = () => {
+    saveWordCopy(file);
+    wordBtn.textContent = 'Saved. Save it again';
+    wordBtn.classList.remove('primary');
+  };
   $('#receipt-code').textContent = code;
   $('#receipt-meta').textContent = `Saved ${when.toLocaleString()} · ${words.toLocaleString()} words`;
   const url = safeUrl(file.assignment.config.submit_url);
@@ -1407,6 +1440,8 @@ $('#receipt-dlg').addEventListener('close', () => editor && rec && rec.inSession
 
 let lastFileSave = 0;
 let eventsAtFileSave = 0;
+let lastFilesForCourse = 0; // the last time "Ready to submit" saved the files for the course
+let eventsAtFilesForCourse = 0;
 const REMIND_MS = 30 * 60_000;
 let lastReminder = Date.now();
 
@@ -1416,20 +1451,24 @@ function updateFileSaveStatus() {
   const el = $('#filesave-status');
   if (!rec) return;
   const ago = lastFileSave ? Date.now() - lastFileSave : null;
-  const at = lastFileSave ? new Date(lastFileSave).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
-  // Never "done" or "submitted": Draftwork can't know whether the file was uploaded.
-  el.textContent = !lastFileSave ? 'Upload file: not saved yet'
-    : unsavedToFile() ? `Changed since your file was saved ${at} · save again before uploading`
-      : `File saved ${at} · remember to upload it`;
+  const clock = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const changed = rec.events.length > eventsAtFilesForCourse;
+  // Never "done" or "submitted": Draftwork can't know whether the files were uploaded.
+  el.textContent = !lastFilesForCourse
+    ? (lastFileSave ? `Backup saved ${clock(lastFileSave)}` : 'No file saved yet')
+    : changed ? `Changed since you saved your files ${clock(lastFilesForCourse)} · use Ready to submit again`
+      : `Files saved ${clock(lastFilesForCourse)} · remember to upload them`;
   const stale = unsavedToFile() && (!lastFileSave || ago > REMIND_MS);
   el.classList.toggle('warn-text', !!stale);
-  el.dataset.tip = 'Your draft is kept on this computer, but only the saved file can be uploaded to your course, and it protects your work if this browser’s data is cleared. Click to save the file now.';
+  el.dataset.tip = lastFilesForCourse
+    ? 'Only the files you saved last are up to date. Click to save the files for your course again.'
+    : 'Your draft is kept on this computer. A backup file protects your work if this browser’s data is cleared. Click to save one now.';
   if (stale && rec.inSession && Date.now() - lastReminder > REMIND_MS && rec.events.length - eventsAtFileSave > 200) {
     lastReminder = Date.now();
-    toast('Reminder: save your file (Ctrl+S) so your work is safe outside this browser. Upload the latest one to your course when you’re finished.', 8000);
+    toast('Reminder: click Save (Ctrl+S) to keep a backup file, so your work is safe outside this browser.', 8000);
   }
 }
-$('#filesave-status').addEventListener('click', () => saveNow());
+$('#filesave-status').addEventListener('click', () => (lastFilesForCourse ? saveNow() : saveBackup()));
 setInterval(updateFileSaveStatus, 30_000);
 
 window.addEventListener('beforeunload', (e) => {
@@ -1449,13 +1488,25 @@ async function saveNow() {
   const b = $('#save-btn');
   b.disabled = true;
   try {
-    await saveFileFrom(await finalFile());
+    await saveFilesFrom(await finalFile());
     await saveDraft();
   } finally {
     b.disabled = false;
   }
 }
 $('#save-btn').addEventListener('click', saveNow);
+
+async function saveBackup() {
+  const b = $('#keep-btn');
+  b.disabled = true;
+  try {
+    await saveBackupFrom(await finalFile());
+    await saveDraft();
+  } finally {
+    b.disabled = false;
+  }
+}
+$('#keep-btn').addEventListener('click', saveBackup);
 
 function printNow() {
   printDoc(rec.doc, rec.header.doc_style, config.title);
@@ -1467,7 +1518,7 @@ async function endSession() {
   await saveDraft();
   show('#screen-ended');
 }
-$('#ended-save').addEventListener('click', async () => saveFileFrom(structuredClone(await rec.toFile())));
+$('#ended-save').addEventListener('click', async () => saveFilesFrom(structuredClone(await rec.toFile())));
 $('#ended-continue').addEventListener('click', async () => {
   try {
     await checkConnection();
@@ -1520,7 +1571,7 @@ function readiness(file, F) {
   }
   if (rec.unstamped().length) items.push({ ok: 'warn', text: 'Some of your latest work is still waiting for a timestamp. Stay online for a minute before saving.' });
   if (!F.integrity.some((c) => c.status === 'fail')) items.push({ ok: true, text: 'Your work is recorded correctly.' });
-  items.push({ ok: 'info', text: 'When you’re finished: Save file to upload, then upload the file to your course. Saving doesn’t submit it.' });
+  items.push({ ok: 'info', text: 'When you’re finished: click Ready to submit, then upload your files to your course. Saving doesn’t submit them.' });
   return items;
 }
 $('#preview-btn').addEventListener('click', openPreview);

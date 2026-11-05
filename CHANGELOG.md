@@ -5,6 +5,8 @@ Draftwork follows [semantic versioning](https://semver.org/). The file format is
 ## Unreleased
 
 ### For students
+- **Ready to submit… gives two files:** it saves the `.draftwork` file, and the window that opens has a button for a Word document with the same name, so instructors can see the work in the course site's preview (Canvas SpeedGrader, for example). The Word document has its own click because browsers ask permission for two downloads from one click. It replaces "Save file to upload…". The window says the `.draftwork` file is always needed, and to upload the Word document if the instructor asks for it.
+- **Save** (a new button, and Ctrl+S) saves only a backup `.draftwork` file, with no Word copy and no window, and doesn't ask the AI question yet.
 - **Shared computers:** when the draft on the start page is someone else's, "Start my own draft" sets it aside under Earlier versions (with their name, and never trimmed) instead of the only choices being to continue or discard it.
 - **Private windows:** the start form says to use a normal window, since closing a private one deletes the draft. Draftwork also asks the browser to keep drafts when the disk runs low.
 - "Needs an internet connection while you write" became "Start online. If the connection drops while you write, keep writing", matching the Offline · keep writing status.
@@ -22,6 +24,8 @@ Draftwork follows [semantic versioning](https://semver.org/). The file format is
 - **A simpler Preview:** a short check first (length, AI disclosure, due date, any flags to add a note to), with the instructor's full view one click away.
 
 ### For instructors
+- **What should students upload?** in Instructions for students: both files, or only the `.draftwork` file. The text to paste and the dropbox advice change to match. It isn't part of the link, so it works for existing assignments.
+- Word documents in a course-site zip are expected when the student's `.draftwork` file is there too: only students with no `.draftwork` file are listed. A loose `.docx` dropped on the page no longer gives a "couldn't read" error.
 - **Make a copy** (More ▾): fills in the New assignment form with an assignment's settings, the way to change a due date or anything else, since settings are part of the link. Your assignments says so.
 - The instructions for students and the printable handout ask for a normal browser window, not a private one.
 - **A front page for instructors:** Write ("Try the student editor", a practice assignment) and Review ("Open assignments", which goes straight to the Assignments tab, and "Sample class"). A short note tells any student who lands there to use the assignment link from their course site.
