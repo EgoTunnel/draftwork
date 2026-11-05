@@ -211,18 +211,25 @@ const browser = spawn(BROWSER, [
   '--disable-extensions', '--disable-features=Translate', ...(args.includes('--headed') ? [] : ['--headless=new']),
   // CI containers (e.g. GitHub's Ubuntu runners) don't allow Chrome's sandbox.
   ...(process.env.CI ? ['--no-sandbox'] : []), 'about:blank',
-], { stdio: 'ignore' });
+], { stdio: ['ignore', 'ignore', 'pipe'] });
+let browserLog = '';
+let browserExit = null;
+browser.stderr.on('data', (d) => { browserLog = (browserLog + d).slice(-2000); });
+browser.on('exit', (code, signal) => { browserExit = signal || `code ${code}`; });
 
 let page;
 try {
-  for (let i = 0; i < 50; i++) {
+  // A cold start on a busy CI machine can take well over 10 s.
+  let browserUp = false;
+  for (let i = 0; i < 300 && !browserUp && !browserExit; i++) {
     try {
       await fetch(`http://127.0.0.1:${cdpPort}/json/version`);
-      break;
+      browserUp = true;
     } catch {
       await sleep(200);
     }
   }
+  if (!browserUp) throw new Error(`The browser ${browserExit ? `exited (${browserExit})` : 'did not respond within 60 s'}. Its output:\n${browserLog}`);
   const config = newConfig({ title: 'E2E Essay', allowDemoTsa: true, wordsMin: 5, aiDisclosure: true });
   const code = await encodeConfig(config);
   const cfgHash = await configHash(config);
